@@ -1,0 +1,43 @@
+name: pre-commit
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  # 1. THE PROBE: Check if the self-hosted runner is online
+  check_runner:
+    name: Check Runner Status
+    runs-on: self-hosted
+    outputs:
+      available: ${{ steps.set_status.outputs.status }}
+    timeout-minutes: 1 # If it doesn't pick up in 60s, we assume it's offline
+    continue-on-error: true
+    steps:
+      - id: set_status
+        run: echo "status=true" >> $GITHUB_OUTPUT
+
+  # 2. THE WORK: Run pre-commit on the chosen runner
+  pre_commit:
+    needs: check_runner
+    if: always() # Run even if check_runner timed out
+    name: Format
+    # Logic: Use self-hosted if probe succeeded, otherwise fallback to ubuntu-latest
+    runs-on: ${{ (needs.check_runner.result == 'success') && 'self-hosted' || 'ubuntu-latest' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage manual
