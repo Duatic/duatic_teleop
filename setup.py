@@ -10,6 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/config', ['config/grasp_positions.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'interactive_pyroki_node = duatic_teleop.interactive_pyroki_node:main',
+            'pose_sequence_node = duatic_teleop.pose_sequence_node:main',
         ],
     },
 )
