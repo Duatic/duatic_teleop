@@ -29,6 +29,7 @@ from visualization_msgs.msg import InteractiveMarker, InteractiveMarkerControl, 
 from interactive_markers.interactive_marker_server import InteractiveMarkerServer
 
 from duatic_kinematics.pyroki_solver import PyrokiIKSolver
+from duatic_kinematics.smoothing import smooth_and_limit
 from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
 
 
@@ -481,21 +482,11 @@ class InteractivePyrokiNode(Node):
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
 
-            # Per-arm smoothing
-            if arm.smoothed_arm_q is None:
-                arm.smoothed_arm_q = arm_q
-            else:
-                arm.smoothed_arm_q = (
-                    self.alpha_filter * arm_q
-                    + (1.0 - self.alpha_filter) * arm.smoothed_arm_q
-                )
-
-            # Per-arm velocity limiting
-            if arm.last_smoothed_arm_q is not None:
-                max_delta = self.max_joint_velocity * dt
-                delta = arm.smoothed_arm_q - arm.last_smoothed_arm_q
-                arm.smoothed_arm_q = arm.last_smoothed_arm_q + np.clip(delta, -max_delta, max_delta)
-
+            # Per-arm smoothing + velocity limiting
+            arm.smoothed_arm_q = smooth_and_limit(
+                arm_q, arm.smoothed_arm_q, arm.last_smoothed_arm_q,
+                self.alpha_filter, self.max_joint_velocity, dt,
+            )
             arm.last_smoothed_arm_q = arm.smoothed_arm_q.copy()
 
             # Write this arm's joints into the full configuration
@@ -536,20 +527,12 @@ class InteractivePyrokiNode(Node):
                             for arm, e in zip(self.arm_states, errors))
         self.get_logger().debug(f"[IK whole_body] {err_str}", throttle_duration_sec=1.0)
 
-        # Whole-body smoothing
-        if self.smoothed_q is None:
-            self.smoothed_q = solution
-        else:
-            self.smoothed_q = (
-                self.alpha_filter * solution
-                + (1.0 - self.alpha_filter) * self.smoothed_q
-            )
-
-        # Whole-body velocity limiting
+        # Whole-body smoothing + velocity limiting
+        self.smoothed_q = smooth_and_limit(
+            solution, self.smoothed_q, self.last_smoothed_q,
+            self.alpha_filter, self.max_joint_velocity, dt,
+        )
         if self.last_smoothed_q is not None:
-            max_delta = self.max_joint_velocity * dt
-            delta = self.smoothed_q - self.last_smoothed_q
-            self.smoothed_q = self.last_smoothed_q + np.clip(delta, -max_delta, max_delta)
             velocities = (self.smoothed_q - self.last_smoothed_q) / dt
         else:
             velocities = np.zeros_like(self.smoothed_q)

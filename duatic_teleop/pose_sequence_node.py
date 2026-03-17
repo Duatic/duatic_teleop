@@ -24,7 +24,8 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from duatic_kinematics.pyroki_solver import PyrokiIKSolver
-from duatic_kinematics.trajectory_types import linear_waypoints, arc_waypoints
+from duatic_kinematics.waypoint_generators import linear_waypoints, arc_waypoints
+from duatic_kinematics.smoothing import smooth_and_limit
 from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
 
 
@@ -323,6 +324,12 @@ class PoseSequenceNode(Node):
             cfg[i] = value
         return cfg
 
+    def _ramp_hip_overrides(self, hip_overrides, max_delta):
+        """Smoothly ramp locked hip joints towards their target values."""
+        for idx, target_val in hip_overrides.items():
+            diff = target_val - self.smoothed_q[idx]
+            self.smoothed_q[idx] += np.clip(diff, -max_delta, max_delta)
+
     def _enforce_ee_distance(self, target_links, positions):
         """Adjust target positions to maintain locked EE distance.
 
@@ -462,26 +469,11 @@ class PoseSequenceNode(Node):
                     f"  [step {info['step']}] IK solve took {solve_ms:.0f}ms (>{100}ms)"
                 )
 
-            # Smoothing
-            if self.smoothed_q is None:
-                self.smoothed_q = solution
-            else:
-                self.smoothed_q = (
-                    self.alpha_filter * solution
-                    + (1.0 - self.alpha_filter) * self.smoothed_q
-                )
-
-            # Velocity limiting
-            max_delta = self.max_joint_velocity * rate_sec
-            if self.last_smoothed_q is not None:
-                delta = self.smoothed_q - self.last_smoothed_q
-                self.smoothed_q = self.last_smoothed_q + np.clip(delta, -max_delta, max_delta)
-
-            # Smoothly ramp locked joints
-            for idx, target_val in hip_overrides.items():
-                diff = target_val - self.smoothed_q[idx]
-                self.smoothed_q[idx] += np.clip(diff, -max_delta, max_delta)
-
+            self.smoothed_q = smooth_and_limit(
+                solution, self.smoothed_q, self.last_smoothed_q,
+                self.alpha_filter, self.max_joint_velocity, rate_sec,
+            )
+            self._ramp_hip_overrides(hip_overrides, self.max_joint_velocity * rate_sec)
             self.last_smoothed_q = self.smoothed_q.copy()
             self._publish(self.smoothed_q)
             time.sleep(rate_sec)
@@ -533,26 +525,11 @@ class PoseSequenceNode(Node):
                     f"  [step {step}] IK solve took {solve_ms:.0f}ms (>{100}ms)"
                 )
 
-            # Smoothing
-            if self.smoothed_q is None:
-                self.smoothed_q = solution
-            else:
-                self.smoothed_q = (
-                    self.alpha_filter * solution
-                    + (1.0 - self.alpha_filter) * self.smoothed_q
-                )
-
-            # Velocity limiting
-            max_delta = self.max_joint_velocity * rate_sec
-            if self.last_smoothed_q is not None:
-                delta = self.smoothed_q - self.last_smoothed_q
-                self.smoothed_q = self.last_smoothed_q + np.clip(delta, -max_delta, max_delta)
-
-            # Smoothly ramp locked joints towards target
-            for idx, target_val in hip_overrides.items():
-                diff = target_val - self.smoothed_q[idx]
-                self.smoothed_q[idx] += np.clip(diff, -max_delta, max_delta)
-
+            self.smoothed_q = smooth_and_limit(
+                solution, self.smoothed_q, self.last_smoothed_q,
+                self.alpha_filter, self.max_joint_velocity, rate_sec,
+            )
+            self._ramp_hip_overrides(hip_overrides, self.max_joint_velocity * rate_sec)
             self.last_smoothed_q = self.smoothed_q.copy()
             self._publish(self.smoothed_q)
             time.sleep(rate_sec)
@@ -678,11 +655,6 @@ class PoseSequenceNode(Node):
 
         rate_sec = 1.0 / self.control_rate
         max_iterations = int(self.max_motion_duration / rate_sec)
-
-        for step in range(max_iterations):
-            if not rclpy.ok():
-                return
-
         duration = float(data.get('duration', 2.0))
         self.get_logger().info(f"  -> Hip move over {duration:.1f}s")
 
@@ -693,19 +665,10 @@ class PoseSequenceNode(Node):
             alpha = min(1.0, (step + 1) * rate_sec / duration)
             interp_q = start_q + alpha * (target_q - start_q)
 
-            if self.smoothed_q is None:
-                self.smoothed_q = interp_q
-            else:
-                self.smoothed_q = (
-                    self.alpha_filter * interp_q
-                    + (1.0 - self.alpha_filter) * self.smoothed_q
-                )
-
-            if self.last_smoothed_q is not None:
-                max_delta = self.max_joint_velocity * rate_sec
-                delta = self.smoothed_q - self.last_smoothed_q
-                self.smoothed_q = self.last_smoothed_q + np.clip(delta, -max_delta, max_delta)
-
+            self.smoothed_q = smooth_and_limit(
+                interp_q, self.smoothed_q, self.last_smoothed_q,
+                self.alpha_filter, self.max_joint_velocity, rate_sec,
+            )
             self.last_smoothed_q = self.smoothed_q.copy()
             self._publish(self.smoothed_q)
             time.sleep(rate_sec)
@@ -754,19 +717,10 @@ class PoseSequenceNode(Node):
             alpha = min(1.0, (step + 1) * rate_sec / 2.0)
             interp_q = start_q + alpha * (target_q - start_q)
 
-            if self.smoothed_q is None:
-                self.smoothed_q = interp_q
-            else:
-                self.smoothed_q = (
-                    self.alpha_filter * interp_q
-                    + (1.0 - self.alpha_filter) * self.smoothed_q
-                )
-
-            if self.last_smoothed_q is not None:
-                max_delta = self.max_joint_velocity * rate_sec
-                delta = self.smoothed_q - self.last_smoothed_q
-                self.smoothed_q = self.last_smoothed_q + np.clip(delta, -max_delta, max_delta)
-
+            self.smoothed_q = smooth_and_limit(
+                interp_q, self.smoothed_q, self.last_smoothed_q,
+                self.alpha_filter, self.max_joint_velocity, rate_sec,
+            )
             self.last_smoothed_q = self.smoothed_q.copy()
             self._publish(self.smoothed_q)
             time.sleep(rate_sec)
