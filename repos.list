@@ -1,5 +1,5 @@
 repositories:
-  duatic_ros2control
+  duatic_ros2control:
     type: git
     url: https://github.com/Duatic/duatic_ros2control.git
     version: main
