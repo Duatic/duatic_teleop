@@ -36,13 +36,14 @@ from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import Duatic
 @dataclass
 class ArmState:
     """Per-arm target, mask, and smoothing state."""
-    name: str                          # component name: "arm_left", "arm_right", "" (single)
-    target_link: str                   # e.g. "arm_left/flange", "flange"
+
+    name: str  # component name: "arm_left", "arm_right", "" (single)
+    target_link: str  # e.g. "arm_left/flange", "flange"
     target_pos: np.ndarray = None
     target_wxyz: np.ndarray = None
     marker_name: str = ""
     marker_color: tuple = (1.0, 0.1, 0.1, 0.5)  # RGBA
-    joint_mask: np.ndarray = None      # (n_actuated,) 1.0=optimize, 0.0=lock
+    joint_mask: np.ndarray = None  # (n_actuated,) 1.0=optimize, 0.0=lock
     joint_indices: list = field(default_factory=list)  # indices of this arm's joints in full cfg
     smoothed_arm_q: np.ndarray = None  # smoothed values for this arm's joints only
     last_smoothed_arm_q: np.ndarray = None
@@ -50,8 +51,8 @@ class ArmState:
 
 # Marker colors per arm
 ARM_COLORS = {
-    "": (1.0, 0.1, 0.1, 0.5),           # single arm: red
-    "arm_left": (0.1, 0.3, 1.0, 0.5),   # left: blue
+    "": (1.0, 0.1, 0.1, 0.5),  # single arm: red
+    "arm_left": (0.1, 0.3, 1.0, 0.5),  # left: blue
     "arm_right": (0.1, 1.0, 0.3, 0.5),  # right: green
 }
 
@@ -60,15 +61,15 @@ VALID_SOLVE_MODES = ("decoupled", "decoupled_with_hip", "whole_body")
 
 class InteractivePyrokiNode(Node):
     def __init__(self):
-        super().__init__('interactive_pyroki_node')
+        super().__init__("interactive_pyroki_node")
 
-        self.declare_parameter('target_link_name', 'flange')
-        self.declare_parameter('use_interactive_markers', True)
-        self.declare_parameter('solve_mode', 'decoupled')
+        self.declare_parameter("target_link_name", "flange")
+        self.declare_parameter("use_interactive_markers", True)
+        self.declare_parameter("solve_mode", "decoupled")
 
-        self.target_link_name = self.get_parameter('target_link_name').value
-        self.use_interactive_markers = self.get_parameter('use_interactive_markers').value
-        self.solve_mode = self.get_parameter('solve_mode').value
+        self.target_link_name = self.get_parameter("target_link_name").value
+        self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
+        self.solve_mode = self.get_parameter("solve_mode").value
 
         if self.solve_mode not in VALID_SOLVE_MODES:
             self.get_logger().warn(
@@ -93,7 +94,7 @@ class InteractivePyrokiNode(Node):
         # Full-body state for velocity computation and whole_body smoothing
         self.last_full_q = None
         self.last_time = None
-        self.smoothed_q = None       # used by whole_body mode
+        self.smoothed_q = None  # used by whole_body mode
         self.last_smoothed_q = None  # used by whole_body mode
 
         self.alpha_filter = 0.15
@@ -107,11 +108,13 @@ class InteractivePyrokiNode(Node):
         self.traj_publishers: dict[str, tuple] = {}
 
         qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        self.desc_sub = self.create_subscription(String, '/robot_description', self.description_cb, qos)
-        self.state_sub = self.create_subscription(JointState, '/joint_states', self.state_cb, 10)
+        self.desc_sub = self.create_subscription(
+            String, "/robot_description", self.description_cb, qos
+        )
+        self.state_sub = self.create_subscription(JointState, "/joint_states", self.state_cb, 10)
 
         if self.use_interactive_markers:
-            self.server = InteractiveMarkerServer(self, 'pyroki_target')
+            self.server = InteractiveMarkerServer(self, "pyroki_target")
             self.get_logger().info("Mode: Interactive Marker (RViz)")
         else:
             self.server = None
@@ -136,21 +139,25 @@ class InteractivePyrokiNode(Node):
 
         # Build arm states
         if self.robot_structure == "single_arm":
-            self.arm_states = [ArmState(
-                name="",
-                target_link=self.target_link_name,
-                marker_name="pyroki_target",
-                marker_color=ARM_COLORS[""],
-            )]
+            self.arm_states = [
+                ArmState(
+                    name="",
+                    target_link=self.target_link_name,
+                    marker_name="pyroki_target",
+                    marker_color=ARM_COLORS[""],
+                )
+            ]
         else:
             # multi_arm / mobile_manipulator
             for arm_name in arm_names:
-                self.arm_states.append(ArmState(
-                    name=arm_name,
-                    target_link=f"{arm_name}/flange",
-                    marker_name=f"pyroki_target_{arm_name.replace('arm_', '')}",
-                    marker_color=ARM_COLORS.get(arm_name, (0.5, 0.5, 0.5, 0.5)),
-                ))
+                self.arm_states.append(
+                    ArmState(
+                        name=arm_name,
+                        target_link=f"{arm_name}/flange",
+                        marker_name=f"pyroki_target_{arm_name.replace('arm_', '')}",
+                        marker_color=ARM_COLORS.get(arm_name, (0.5, 0.5, 0.5, 0.5)),
+                    )
+                )
 
         # Setup PoseStamped subscribers (non-interactive mode)
         if not self.use_interactive_markers:
@@ -170,15 +177,17 @@ class InteractivePyrokiNode(Node):
         """Create JointTrajectory publishers based on detected components."""
         if self.robot_structure == "single_arm":
             self.traj_publishers[""] = self.create_publisher(
-                JointTrajectory, '/joint_trajectory_controller/joint_trajectory', 10)
+                JointTrajectory, "/joint_trajectory_controller/joint_trajectory", 10
+            )
         else:
             for arm_name in arm_names:
-                topic = f'/joint_trajectory_controller_{arm_name}/joint_trajectory'
+                topic = f"/joint_trajectory_controller_{arm_name}/joint_trajectory"
                 self.traj_publishers[arm_name] = self.create_publisher(JointTrajectory, topic, 10)
 
             if hip_names:
                 self.traj_publishers["hip"] = self.create_publisher(
-                    JointTrajectory, '/joint_trajectory_controller_hip/joint_trajectory', 10)
+                    JointTrajectory, "/joint_trajectory_controller_hip/joint_trajectory", 10
+                )
 
         self.get_logger().info(f"Publishers: {list(self.traj_publishers.keys())}")
 
@@ -186,15 +195,18 @@ class InteractivePyrokiNode(Node):
         """Create PoseStamped subscribers for non-interactive mode."""
         if self.robot_structure == "single_arm":
             self.create_subscription(
-                PoseStamped, '/cartesian_pose_controller/target_pose',
-                lambda msg: self._pose_cb(msg, 0), 10)
+                PoseStamped,
+                "/cartesian_pose_controller/target_pose",
+                lambda msg: self._pose_cb(msg, 0),
+                10,
+            )
         else:
             for i, arm in enumerate(self.arm_states):
-                suffix = arm.name.replace('arm_', '')  # "left" or "right"
-                topic = f'/cartesian_pose_controller/target_pose/{suffix}'
+                suffix = arm.name.replace("arm_", "")  # "left" or "right"
+                topic = f"/cartesian_pose_controller/target_pose/{suffix}"
                 self.create_subscription(
-                    PoseStamped, topic,
-                    lambda msg, idx=i: self._pose_cb(msg, idx), 10)
+                    PoseStamped, topic, lambda msg, idx=i: self._pose_cb(msg, idx), 10
+                )
 
     def description_cb(self, msg):
         """Initialize solver from robot_description URDF."""
@@ -271,7 +283,8 @@ class InteractivePyrokiNode(Node):
             indices = [self.joint_names.index(j) for j in comp_joints]
             self._pub_joint_map[comp_name] = (comp_joints, indices)
 
-        self.get_logger().debug(f"Publisher joint mapping: { {k: v[0] for k, v in self._pub_joint_map.items()} }")
+        mapping = {k: v[0] for k, v in self._pub_joint_map.items()}
+        self.get_logger().debug(f"Publisher joint mapping: {mapping}")
 
     def state_cb(self, msg):
         if self.joint_names is None or len(self.joint_names) == 0:
@@ -318,7 +331,10 @@ class InteractivePyrokiNode(Node):
             self.server.applyChanges()
 
         self.fully_initialized = True
-        arm_info = ", ".join(f"{a.name or 'arm'}: ({a.target_pos[0]:.3f}, {a.target_pos[1]:.3f}, {a.target_pos[2]:.3f})" for a in self.arm_states)
+        arm_info = ", ".join(
+            f"{a.name or 'arm'}: ({a.target_pos[0]:.3f}, {a.target_pos[1]:.3f}, {a.target_pos[2]:.3f})"
+            for a in self.arm_states
+        )
         self.get_logger().info(f"Targets synced to actual pose. {arm_info}")
 
     def _init_interactive_marker(self, arm: ArmState):
@@ -354,11 +370,11 @@ class InteractivePyrokiNode(Node):
         int_marker.controls.append(sphere_control)
 
         # 6-DOF controls (3 rotate + 3 translate)
-        for axis, quat in [('x', (1, 1, 0, 0)), ('y', (1, 0, 1, 0)), ('z', (1, 0, 0, 1))]:
-            w, x, y, z = [v / (2 ** 0.5) for v in quat]
+        for axis, quat in [("x", (1, 1, 0, 0)), ("y", (1, 0, 1, 0)), ("z", (1, 0, 0, 1))]:
+            w, x, y, z = (v / (2**0.5) for v in quat)
             for mode, name_prefix in [
-                (InteractiveMarkerControl.ROTATE_AXIS, 'rotate'),
-                (InteractiveMarkerControl.MOVE_AXIS, 'move'),
+                (InteractiveMarkerControl.ROTATE_AXIS, "rotate"),
+                (InteractiveMarkerControl.MOVE_AXIS, "move"),
             ]:
                 control = InteractiveMarkerControl()
                 control.name = f"{name_prefix}_{axis}"
@@ -378,13 +394,21 @@ class InteractivePyrokiNode(Node):
             return
         with self._state_lock:
             arm = self.arm_states[arm_index]
-            arm.target_pos = np.array([
-                msg.pose.position.x, msg.pose.position.y, msg.pose.position.z,
-            ])
-            arm.target_wxyz = np.array([
-                msg.pose.orientation.w, msg.pose.orientation.x,
-                msg.pose.orientation.y, msg.pose.orientation.z,
-            ])
+            arm.target_pos = np.array(
+                [
+                    msg.pose.position.x,
+                    msg.pose.position.y,
+                    msg.pose.position.z,
+                ]
+            )
+            arm.target_wxyz = np.array(
+                [
+                    msg.pose.orientation.w,
+                    msg.pose.orientation.x,
+                    msg.pose.orientation.y,
+                    msg.pose.orientation.z,
+                ]
+            )
 
     def process_feedback(self, feedback):
         """Handle interactive marker feedback — identify marker by name."""
@@ -394,17 +418,21 @@ class InteractivePyrokiNode(Node):
         for arm in self.arm_states:
             if feedback.marker_name == arm.marker_name:
                 with self._state_lock:
-                    arm.target_pos = np.array([
-                        feedback.pose.position.x,
-                        feedback.pose.position.y,
-                        feedback.pose.position.z,
-                    ])
-                    arm.target_wxyz = np.array([
-                        feedback.pose.orientation.w,
-                        feedback.pose.orientation.x,
-                        feedback.pose.orientation.y,
-                        feedback.pose.orientation.z,
-                    ])
+                    arm.target_pos = np.array(
+                        [
+                            feedback.pose.position.x,
+                            feedback.pose.position.y,
+                            feedback.pose.position.z,
+                        ]
+                    )
+                    arm.target_wxyz = np.array(
+                        [
+                            feedback.pose.orientation.w,
+                            feedback.pose.orientation.x,
+                            feedback.pose.orientation.y,
+                            feedback.pose.orientation.z,
+                        ]
+                    )
                 return
 
     def _split_and_publish(self, full_q, full_velocities):
@@ -477,15 +505,20 @@ class InteractivePyrokiNode(Node):
 
             self.get_logger().debug(
                 f"[IK {arm.name or 'arm'}] pos_err={pos_err:.4f} ori_err={ori_err:.4f}",
-                throttle_duration_sec=1.0)
+                throttle_duration_sec=1.0,
+            )
 
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
 
             # Per-arm smoothing + velocity limiting
             arm.smoothed_arm_q = smooth_and_limit(
-                arm_q, arm.smoothed_arm_q, arm.last_smoothed_arm_q,
-                self.alpha_filter, self.max_joint_velocity, dt,
+                arm_q,
+                arm.smoothed_arm_q,
+                arm.last_smoothed_arm_q,
+                self.alpha_filter,
+                self.max_joint_velocity,
+                dt,
             )
             arm.last_smoothed_arm_q = arm.smoothed_arm_q.copy()
 
@@ -523,14 +556,20 @@ class InteractivePyrokiNode(Node):
             target_links, target_positions, target_wxyzs, prev_cfg
         )
 
-        err_str = ", ".join(f"{arm.name or 'arm'}: p={e[0]:.4f} o={e[1]:.4f}"
-                            for arm, e in zip(self.arm_states, errors))
+        err_str = ", ".join(
+            f"{arm.name or 'arm'}: p={e[0]:.4f} o={e[1]:.4f}"
+            for arm, e in zip(self.arm_states, errors)
+        )
         self.get_logger().debug(f"[IK whole_body] {err_str}", throttle_duration_sec=1.0)
 
         # Whole-body smoothing + velocity limiting
         self.smoothed_q = smooth_and_limit(
-            solution, self.smoothed_q, self.last_smoothed_q,
-            self.alpha_filter, self.max_joint_velocity, dt,
+            solution,
+            self.smoothed_q,
+            self.last_smoothed_q,
+            self.alpha_filter,
+            self.max_joint_velocity,
+            dt,
         )
         if self.last_smoothed_q is not None:
             velocities = (self.smoothed_q - self.last_smoothed_q) / dt

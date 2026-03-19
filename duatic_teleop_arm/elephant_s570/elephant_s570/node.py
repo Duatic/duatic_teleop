@@ -43,23 +43,25 @@ from tf2_ros import Buffer, TransformListener
 from duatic_dynaarm_extensions.duatic_helpers.duatic_controller_helper import (
     DuaticControllerHelper,
 )
-from elephant_s570.fk import S570FK, _rotation_matrix_to_quaternion
+from elephant_s570.fk import S570FK
 
 
 def _quat_to_rotation_matrix(q_wxyz: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
     w, x, y, z = q_wxyz
-    return np.array([
-        [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
-        [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
-        [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)],
-    ])
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
+    )
 
 
 class ArmPhase(Enum):
     WAITING = auto()  # No S570 data yet
-    READY = auto()    # Data flowing, waiting for deadman press
-    ACTIVE = auto()   # Deadman held, teleoping
+    READY = auto()  # Data flowing, waiting for deadman press
+    ACTIVE = auto()  # Deadman held, teleoping
 
 
 class S570ArmState:
@@ -80,12 +82,14 @@ def _quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     """Hamilton product of two quaternions [w, x, y, z]."""
     w1, x1, y1, z1 = q1
     w2, x2, y2, z2 = q2
-    return np.array([
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    ])
+    return np.array(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ]
+    )
 
 
 class ElephantS570Node(Node):
@@ -108,24 +112,26 @@ class ElephantS570Node(Node):
         self.arm_side: str = self.get_parameter("arm_side").value
         self.dual_arm_robot: bool = self.get_parameter("dual_arm_robot").value
 
-        self.robot_home_pos = np.array([
-            self.get_parameter("robot_home_pos_x").value,
-            self.get_parameter("robot_home_pos_y").value,
-            self.get_parameter("robot_home_pos_z").value,
-        ])
-        self.robot_home_quat = np.array([
-            self.get_parameter("robot_home_quat_w").value,
-            self.get_parameter("robot_home_quat_x").value,
-            self.get_parameter("robot_home_quat_y").value,
-            self.get_parameter("robot_home_quat_z").value,
-        ])
+        self.robot_home_pos = np.array(
+            [
+                self.get_parameter("robot_home_pos_x").value,
+                self.get_parameter("robot_home_pos_y").value,
+                self.get_parameter("robot_home_pos_z").value,
+            ]
+        )
+        self.robot_home_quat = np.array(
+            [
+                self.get_parameter("robot_home_quat_w").value,
+                self.get_parameter("robot_home_quat_x").value,
+                self.get_parameter("robot_home_quat_y").value,
+                self.get_parameter("robot_home_quat_z").value,
+            ]
+        )
         self.robot_base_frame: str = self.get_parameter("robot_base_frame").value
         self.robot_ee_frame: str = self.get_parameter("robot_ee_frame").value
 
         if self.arm_side not in ("left", "right", "both"):
-            self.get_logger().error(
-                f"Invalid arm_side '{self.arm_side}', defaulting to 'both'"
-            )
+            self.get_logger().error(f"Invalid arm_side '{self.arm_side}', defaulting to 'both'")
             self.arm_side = "both"
 
         # --- Controller helper (created lazily on first deadman press) ---
@@ -148,9 +154,7 @@ class ElephantS570Node(Node):
             self.arms[side] = S570ArmState(side)
 
         # Single combined joint_states topic (14 joints: 7 left + 7 right)
-        self.create_subscription(
-            JointState, "/teleop_arm/joint_states", self._joint_state_cb, 10
-        )
+        self.create_subscription(JointState, "/teleop_arm/joint_states", self._joint_state_cb, 10)
         self.get_logger().info("Subscribed to /teleop_arm/joint_states")
 
         # Buttons
@@ -174,9 +178,7 @@ class ElephantS570Node(Node):
                 self.pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
                 self.get_logger().info(f"Publishing to {topic}")
         else:
-            self.pose_pubs[self._sides[0]] = self.create_publisher(
-                PoseStamped, base_topic, 10
-            )
+            self.pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, base_topic, 10)
             self.get_logger().info(f"Publishing to {base_topic}")
 
         # --- Visualization markers ---
@@ -187,9 +189,7 @@ class ElephantS570Node(Node):
 
         # --- Visualization: republish joints with URDF names for robot_state_publisher ---
         # URDF uses joint1-7 (left) and joint8-14 (right), but incoming uses s570_left/joint_1 etc.
-        self._urdf_joint_pub = self.create_publisher(
-            JointState, "/s570/joint_states", 10
-        )
+        self._urdf_joint_pub = self.create_publisher(JointState, "/s570/joint_states", 10)
         # Mapping: side -> list of URDF joint names
         self._urdf_joint_names = {
             "left": [f"joint{i}" for i in range(1, 8)],
@@ -225,12 +225,8 @@ class ElephantS570Node(Node):
             return
 
         helper = self._ensure_controller_helper()
-        jtc_names = helper.get_all_controllers(
-            matching_names=["joint_trajectory_controller"]
-        )
-        freeze_names = helper.get_all_controllers(
-            matching_names=["freeze_controller"]
-        )
+        jtc_names = helper.get_all_controllers(matching_names=["joint_trajectory_controller"])
+        freeze_names = helper.get_all_controllers(matching_names=["freeze_controller"])
 
         if jtc_names:
             self.controller_helper.switch_controller(
@@ -251,12 +247,8 @@ class ElephantS570Node(Node):
             return
 
         helper = self._ensure_controller_helper()
-        jtc_names = helper.get_all_controllers(
-            matching_names=["joint_trajectory_controller"]
-        )
-        freeze_names = helper.get_all_controllers(
-            matching_names=["freeze_controller"]
-        )
+        jtc_names = helper.get_all_controllers(matching_names=["joint_trajectory_controller"])
+        freeze_names = helper.get_all_controllers(matching_names=["freeze_controller"])
 
         if freeze_names:
             self.controller_helper.switch_controller(
@@ -279,23 +271,18 @@ class ElephantS570Node(Node):
 
         for side, arm in self.arms.items():
             prefix = f"s570_{side}/"
-            joints = [
-                joint_map.get(f"{prefix}joint_{i+1}", 0.0) for i in range(7)
-            ]
+            joints = [joint_map.get(f"{prefix}joint_{i + 1}", 0.0) for i in range(7)]
             arm.current_joints = np.array(joints)
 
             if arm.phase == ArmPhase.WAITING:
                 arm.phase = ArmPhase.READY
-                self.get_logger().info(
-                    f"S570 {side} data received — READY. Hold A to teleop."
-                )
+                self.get_logger().info(f"S570 {side} data received — READY. Hold A to teleop.")
 
     def _buttons_cb(self, msg: Joy) -> None:
         # Read the right deadman button (used for all arms since left buttons are broken)
         right_btn_idx = self._deadman_button_index["right"]
         right_pressed = (
-            right_btn_idx < len(msg.buttons)
-            and msg.buttons[right_btn_idx] == 0  # Active-low
+            right_btn_idx < len(msg.buttons) and msg.buttons[right_btn_idx] == 0  # Active-low
         )
 
         for side, arm in self.arms.items():
@@ -330,32 +317,30 @@ class ElephantS570Node(Node):
             ee_frame = self.robot_ee_frame
 
         try:
-            t = self.tf_buffer.lookup_transform(
-                self.robot_base_frame, ee_frame, Time()
+            t = self.tf_buffer.lookup_transform(self.robot_base_frame, ee_frame, Time())
+            pos = np.array(
+                [
+                    t.transform.translation.x,
+                    t.transform.translation.y,
+                    t.transform.translation.z,
+                ]
             )
-            pos = np.array([
-                t.transform.translation.x,
-                t.transform.translation.y,
-                t.transform.translation.z,
-            ])
-            quat = np.array([
-                t.transform.rotation.w,
-                t.transform.rotation.x,
-                t.transform.rotation.y,
-                t.transform.rotation.z,
-            ])
+            quat = np.array(
+                [
+                    t.transform.rotation.w,
+                    t.transform.rotation.x,
+                    t.transform.rotation.y,
+                    t.transform.rotation.z,
+                ]
+            )
             return pos, quat
         except Exception as e:
-            self.get_logger().warn(
-                f"TF lookup {self.robot_base_frame} → {ee_frame} failed: {e}"
-            )
+            self.get_logger().warn(f"TF lookup {self.robot_base_frame} → {ee_frame} failed: {e}")
             return None
 
     def _arm_activate(self, arm: S570ArmState) -> None:
         if arm.phase == ArmPhase.WAITING:
-            self.get_logger().warn(
-                f"S570 {arm.side}: no data yet, cannot activate."
-            )
+            self.get_logger().warn(f"S570 {arm.side}: no data yet, cannot activate.")
             return
 
         arm.home_joints = arm.current_joints.copy()
@@ -372,9 +357,7 @@ class ElephantS570Node(Node):
         else:
             arm.robot_home_pos = self.robot_home_pos.copy()
             arm.robot_home_quat = self.robot_home_quat.copy()
-            self.get_logger().warn(
-                f"S570 {arm.side} — using parameter fallback for robot home"
-            )
+            self.get_logger().warn(f"S570 {arm.side} — using parameter fallback for robot home")
 
         arm.phase = ArmPhase.ACTIVE
         self.get_logger().info(
@@ -398,15 +381,12 @@ class ElephantS570Node(Node):
     #  FK-based target computation                                        #
     # ------------------------------------------------------------------ #
 
-    def _compute_target(
-        self, arm: S570ArmState
-    ) -> tuple[np.ndarray, np.ndarray] | None:
+    def _compute_target(self, arm: S570ArmState) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute Cartesian target from S570 FK relative displacement.
 
         Returns (position[3], quaternion_wxyz[4]) or None.
         """
-        if (arm.home_joints is None or arm.current_joints is None
-                or arm.robot_home_pos is None):
+        if arm.home_joints is None or arm.current_joints is None or arm.robot_home_pos is None:
             return None
 
         # Relative EE displacement in base frame
