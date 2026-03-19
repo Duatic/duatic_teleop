@@ -1,4 +1,8 @@
 repositories:
+  duatic_ros2control
+     type: git
+    url: https://github.com/Duatic/duatic_ros2control.git
+    version: main
   duatic_helpers:
     type: git
     url: https://github.com/Duatic/duatic_helpers.git
