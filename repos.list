@@ -1,0 +1,9 @@
+repositories:
+  duatic_kinematics:
+    type: git
+    url: https://github.com/Duatic/duatic_kinematics.git
+    version: main
+  duatic_dynaarm_extensions:
+    type: git
+    url: https://github.com/Duatic/duatic_dynaarm_extensions.git
+    version: main
