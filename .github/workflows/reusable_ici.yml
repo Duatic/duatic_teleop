@@ -51,6 +51,7 @@ jobs:
   reusable_ici:
     # This job starts regardless of whether check_runner succeeded or timed out
     if: always()
+    timeout-minutes: 180
     needs: check_runner
     name: ${{ inputs.ros_distro }} ${{ inputs.ros_repo }}
 
