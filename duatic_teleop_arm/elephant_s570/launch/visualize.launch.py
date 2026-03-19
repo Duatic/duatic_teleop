@@ -25,7 +25,7 @@ def generate_launch_description():
     urdf_path = os.path.join(pkg_share, "urdf", "s570.urdf")
     rviz_config_path = os.path.join(pkg_share, "rviz", "s570.rviz")
 
-    with open(urdf_path, "r") as f:
+    with open(urdf_path) as f:
         robot_description = f.read()
 
     arm_side_arg = DeclareLaunchArgument("arm_side", default_value="both")
@@ -59,10 +59,12 @@ def generate_launch_description():
         output="screen",
     )
 
-    return LaunchDescription([
-        arm_side_arg,
-        dual_arm_arg,
-        robot_state_publisher,
-        elephant_s570_node,
-        rviz_node,
-    ])
+    return LaunchDescription(
+        [
+            arm_side_arg,
+            dual_arm_arg,
+            robot_state_publisher,
+            elephant_s570_node,
+            rviz_node,
+        ]
+    )

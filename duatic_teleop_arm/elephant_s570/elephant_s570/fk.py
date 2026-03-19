@@ -20,32 +20,38 @@ _DEFAULT_URDF = Path(get_package_share_directory("elephant_s570")) / "urdf" / "s
 
 def _rotation_x(angle: float) -> np.ndarray:
     c, s = np.cos(angle), np.sin(angle)
-    return np.array([
-        [1, 0, 0, 0],
-        [0, c, -s, 0],
-        [0, s, c, 0],
-        [0, 0, 0, 1],
-    ])
+    return np.array(
+        [
+            [1, 0, 0, 0],
+            [0, c, -s, 0],
+            [0, s, c, 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
 
 def _rotation_y(angle: float) -> np.ndarray:
     c, s = np.cos(angle), np.sin(angle)
-    return np.array([
-        [c, 0, s, 0],
-        [0, 1, 0, 0],
-        [-s, 0, c, 0],
-        [0, 0, 0, 1],
-    ])
+    return np.array(
+        [
+            [c, 0, s, 0],
+            [0, 1, 0, 0],
+            [-s, 0, c, 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
 
 def _rotation_z(angle: float) -> np.ndarray:
     c, s = np.cos(angle), np.sin(angle)
-    return np.array([
-        [c, -s, 0, 0],
-        [s, c, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 1],
-    ])
+    return np.array(
+        [
+            [c, -s, 0, 0],
+            [s, c, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
 
 def _transform_from_origin(xyz: list[float], rpy: list[float]) -> np.ndarray:
@@ -64,11 +70,13 @@ def _rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
     c, s = np.cos(angle), np.sin(angle)
     t = 1.0 - c
     x, y, z = ax
-    R = np.array([
-        [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
-        [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
-        [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
-    ])
+    R = np.array(
+        [
+            [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
+            [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
+            [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+        ]
+    )
     T = np.eye(4)
     T[:3, :3] = R
     return T
@@ -153,9 +161,7 @@ class S570FK:
         self._left_chain = [all_joints[n] for n in left_joint_names]
         self._right_chain = [all_joints[n] for n in right_joint_names]
 
-    def compute(
-        self, side: str, joint_angles_rad: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def compute(self, side: str, joint_angles_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Compute FK for one arm.
 
         Args:
@@ -166,9 +172,9 @@ class S570FK:
             (position[3], quaternion_wxyz[4]) of the end-effector.
         """
         chain = self._left_chain if side == "left" else self._right_chain
-        assert len(joint_angles_rad) >= len(chain), (
-            f"Expected {len(chain)} joint angles, got {len(joint_angles_rad)}"
-        )
+        assert len(joint_angles_rad) >= len(
+            chain
+        ), f"Expected {len(chain)} joint angles, got {len(joint_angles_rad)}"
 
         T = np.eye(4)
         for i, joint in enumerate(chain):
@@ -196,14 +202,12 @@ class S570FK:
 
         T_home = np.eye(4)
         for i, joint in enumerate(chain):
-            T_home = T_home @ joint.origin @ _rotation_about_axis(
-                joint.axis, home_angles_rad[i]
-            )
+            T_home = T_home @ joint.origin @ _rotation_about_axis(joint.axis, home_angles_rad[i])
 
         T_current = np.eye(4)
         for i, joint in enumerate(chain):
-            T_current = T_current @ joint.origin @ _rotation_about_axis(
-                joint.axis, current_angles_rad[i]
+            T_current = (
+                T_current @ joint.origin @ _rotation_about_axis(joint.axis, current_angles_rad[i])
             )
 
         # Position delta in base frame (simple subtraction — already in base frame)
