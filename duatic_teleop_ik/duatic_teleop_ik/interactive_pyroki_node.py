@@ -321,6 +321,12 @@ class InteractivePyrokiNode(Node):
                 arm.target_wxyz = np.array(tcp_transform[:4])
                 arm.target_pos = np.array(tcp_transform[4:])
 
+                # Solve IK for this arm only (other joints locked via mask)
+                solution, pos_err, ori_err = self.solver.solve(
+                    arm.target_link, arm.target_pos, arm.target_wxyz, actual_q.copy(), arm.joint_mask
+                )
+                self.get_logger().info(f"FK target to check solver output: solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
+
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
             return
