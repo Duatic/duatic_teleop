@@ -32,7 +32,7 @@ from duatic_kinematics.pyroki_solver import PyrokiIKSolver
 from duatic_kinematics.smoothing import smooth_and_limit
 from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
 
-
+from jaxlie import SE3
 
 
 @dataclass
