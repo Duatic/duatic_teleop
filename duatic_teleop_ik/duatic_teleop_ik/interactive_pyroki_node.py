@@ -328,7 +328,7 @@ class InteractivePyrokiNode(Node):
                     actual_q.copy(),
                     arm.joint_mask
                 )
-                self.get_logger().info(f"FK target to check solver output: solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
+                self.get_logger().info(f"FK_ target to check solver output: solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
 
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
