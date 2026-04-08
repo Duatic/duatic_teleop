@@ -320,6 +320,8 @@ class InteractivePyrokiNode(Node):
             for arm in self.arm_states:
                 tcp_idx = link_names.index(arm.target_link)
                 pose = SE3(transforms[tcp_idx])
+                arm.target_wxyz = np.array(pose.rotation().wxyz)
+                arm.target_pos = np.array(pose.translation())
 
                 solution, pos_err, ori_err = self.solver.solve(
                     arm.target_link,
