@@ -257,6 +257,7 @@ class InteractivePyrokiNode(Node):
                 mask = np.zeros(n, dtype=np.float32)
                 indices = []
                 for i, jname in enumerate(self.joint_names):
+                    self.get_logger().info(f"joint name: {jname}")
                     is_this_arm = jname.startswith(f"{arm.name}/")
                     is_hip = include_hip and jname.startswith("hip")
                     if is_this_arm or is_hip:
