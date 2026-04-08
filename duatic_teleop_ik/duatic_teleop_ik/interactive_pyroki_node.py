@@ -32,7 +32,7 @@ from duatic_kinematics.pyroki_solver import PyrokiIKSolver
 from duatic_kinematics.smoothing import smooth_and_limit
 from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
 
-from jaxlie import SE3
+
 
 
 @dataclass
@@ -319,16 +319,14 @@ class InteractivePyrokiNode(Node):
 
             for arm in self.arm_states:
                 tcp_idx = link_names.index(arm.target_link)
-                tcp_transform = transforms[tcp_idx]
                 pose = SE3(transforms[tcp_idx])
-                arm.target_pos = np.array(pose.translation())
-                arm.target_wxyz = np.array(pose.rotation().wxyz)
-                #arm.target_wxyz = np.array(tcp_transform[:4])
-                #arm.target_pos = np.array(tcp_transform[4:])
 
-                # Solve IK for this arm only (other joints locked via mask)
                 solution, pos_err, ori_err = self.solver.solve(
-                    arm.target_link, arm.target_pos, arm.target_wxyz, actual_q.copy(), arm.joint_mask
+                    arm.target_link,
+                    np.array(pose.translation()),
+                    np.array(pose.rotation().wxyz),
+                    actual_q.copy(),
+                    arm.joint_mask
                 )
                 self.get_logger().info(f"FK target to check solver output: solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
 
