@@ -330,7 +330,11 @@ class InteractivePyrokiNode(Node):
                     actual_q.copy(),
                     arm.joint_mask
                 )
-                self.get_logger().info(f"FK_ target to check solver output: solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
+
+                # Extract this arm's joints from the solution
+                arm_q = np.array([solution[i] for i in arm.joint_indices])
+
+                self.get_logger().info(f"FK_ target to check solver output: {arm.name} arm_q: {arm_q}, pos_err: {pos_err}, ori_err: {ori_err}")
 
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
@@ -517,8 +521,6 @@ class InteractivePyrokiNode(Node):
                 arm.target_link, t_pos, t_wxyz, prev_cfg, arm.joint_mask
             )
 
-            self.get_logger().info(f"{arm.name} solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
-
             self.get_logger().debug(
                 f"[IK {arm.name or 'arm'}] pos_err={pos_err:.4f} ori_err={ori_err:.4f}",
                 throttle_duration_sec=1.0,
@@ -526,6 +528,8 @@ class InteractivePyrokiNode(Node):
 
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
+
+            self.get_logger().info(f"{arm.name} arm_q: {arm_q}, pos_err: {pos_err}, ori_err: {ori_err}")
 
             # Per-arm smoothing + velocity limiting
             arm.smoothed_arm_q = smooth_and_limit(
