@@ -277,7 +277,7 @@ class InteractivePyrokiNode(Node):
                 arm.joint_indices = indices
 
             self.get_logger().info(
-                f"Arm '{arm.name or 'arm'}': mask has {int(arm.joint_mask.sum())} active joints, "
+                f"Arm__ '{arm.name or 'arm'}': mask has {int(arm.joint_mask.sum())} active joints, "
                 f"indices={arm.joint_indices}"
             )
 
