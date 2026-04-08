@@ -506,6 +506,8 @@ class InteractivePyrokiNode(Node):
                 arm.target_link, t_pos, t_wxyz, prev_cfg, arm.joint_mask
             )
 
+            self.get_logger().info(f"{arm.name} solution: {solution}, pos_err: {pos_err}, ori_err: {ori_err}")
+
             self.get_logger().debug(
                 f"[IK {arm.name or 'arm'}] pos_err={pos_err:.4f} ori_err={ori_err:.4f}",
                 throttle_duration_sec=1.0,
