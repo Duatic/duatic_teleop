@@ -256,11 +256,21 @@ class InteractivePyrokiNode(Node):
                 # Multi-arm: this arm's joints + optionally hip
                 mask = np.zeros(n, dtype=np.float32)
                 indices = []
+                # exclude clamp joints because not controlled via JointTrajectoryController
+                # give error otherwise because mismatch of number joints given and expected
+                excluded_joints = {
+                    "arm_left/clamp_left_finger_joint",
+                    "arm_right/clamp_right_finger_joint",
+                }
+
                 for i, jname in enumerate(self.joint_names):
                     self.get_logger().info(f"joint name: {jname}")
+
                     is_this_arm = jname.startswith(f"{arm.name}/")
                     is_hip = include_hip and jname.startswith("hip")
-                    if is_this_arm or is_hip:
+                    is_excluded = jname in excluded_joints
+
+                    if (is_this_arm or is_hip) and not is_excluded:
                         mask[i] = 1.0
                         indices.append(i)
                 arm.joint_mask = mask
