@@ -392,6 +392,7 @@ class InteractivePyrokiNode(Node):
         """PoseStamped callback for non-interactive mode."""
         if not self.fully_initialized:
             return
+        self.get:_logger().debug(f"_pose_cb {msg}")
         with self._state_lock:
             arm = self.arm_states[arm_index]
             arm.target_pos = np.array(
@@ -491,6 +492,8 @@ class InteractivePyrokiNode(Node):
             with self._state_lock:
                 t_pos = arm.target_pos.copy()
                 t_wxyz = arm.target_wxyz.copy()
+            
+            self.get_logger().debug(f"{arm.name} current arm.target_pos: {t_pos}")
 
             # Build prev_cfg: actual_q with this arm's smoothed values overlaid
             prev_cfg = actual_q.copy()

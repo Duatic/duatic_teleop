@@ -427,13 +427,14 @@ class ElephantS570Node(Node):
                 continue
 
             pos, quat = result
+            pos, quat = self.fk.compute(side, arm.current_joints)
 
             msg = PoseStamped()
             msg.header.stamp = stamp
-            msg.header.frame_id = "base"
-            msg.pose.position.x = float(pos[0])
-            msg.pose.position.y = float(pos[1])
-            msg.pose.position.z = float(pos[2])
+            msg.header.frame_id = "base_link"
+            msg.pose.position.x = float(pos[0]) * 2.0
+            msg.pose.position.y = float(pos[1]) * 2.0
+            msg.pose.position.z = float(pos[2]) + 1.0
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
@@ -442,7 +443,7 @@ class ElephantS570Node(Node):
             self.pose_pubs[side].publish(msg)
 
             # Publish DynaArm target marker (for DynaArm RViz)
-            self._publish_pose_markers(self._target_marker_pub, msg, "base", f"target_{side}_")
+            self._publish_pose_markers(self._target_marker_pub, msg, "base_link", f"target_{side}_")
 
     def _publish_urdf_joints(self, stamp) -> None:
         """Republish current joint angles with URDF joint names for visualization."""
@@ -472,15 +473,15 @@ class ElephantS570Node(Node):
             pos, quat = self.fk.compute(side, arm.current_joints)
             msg = PoseStamped()
             msg.header.stamp = stamp
-            msg.header.frame_id = "base"
-            msg.pose.position.x = float(pos[0])
-            msg.pose.position.y = float(pos[1])
-            msg.pose.position.z = float(pos[2])
+            msg.header.frame_id = "base_link"
+            msg.pose.position.x = float(pos[0]) * 2.0
+            msg.pose.position.y = float(pos[1]) * 2.0
+            msg.pose.position.z = float(pos[2]) + 1.0
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
             msg.pose.orientation.z = float(quat[3])
-            self._publish_pose_markers(self._s570_marker_pub, msg, "base", f"fk_{side}_")
+            self._publish_pose_markers(self._s570_marker_pub, msg, "base_link", f"fk_{side}_")
 
     def _publish_pose_markers(
         self, publisher, pose_stamped: PoseStamped, frame: str, ns_prefix: str

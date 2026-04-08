@@ -9,6 +9,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        ('share/duatic_teleop_ik/scripts', ['scripts/robot_targets.json']),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -20,6 +21,8 @@ setup(
     entry_points={
         "console_scripts": [
             "interactive_pyroki_node = duatic_teleop_ik.interactive_pyroki_node:main",
+            "singularities_benchmark_node = duatic_teleop_ik.singularities_benchmark_node:main",
+            "singularity_replay_node = duatic_teleop_ik.singularity_replay_node:main",
         ],
     },
 )
