@@ -10,7 +10,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", ["launch/visualize.launch.py"]),
-        ("share/" + package_name + "/launch", ["launch/elephant_dynaarm.launch.py"]),
+        ("share/" + package_name + "/launch", ["launch/dynaarm_single.launch.py"]),
         ("share/" + package_name + "/rviz", ["rviz/s570.rviz"]),
         ("share/" + package_name + "/urdf", ["urdf/s570.urdf"]),
         (
@@ -38,6 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "elephant_s570_node = elephant_s570.node:main",
+            "s570_hardware_node = elephant_s570.s570_hardware_node:main",
         ],
     },
 )

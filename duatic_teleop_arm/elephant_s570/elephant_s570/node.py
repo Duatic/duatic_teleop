@@ -434,7 +434,7 @@ class ElephantS570Node(Node):
             msg.header.frame_id = "base_link"
             msg.pose.position.x = float(pos[0]) * 2.0
             msg.pose.position.y = float(pos[1]) * 2.0
-            msg.pose.position.z = float(pos[2]) + 1.0
+            msg.pose.position.z = max(0.4, 0.5 + float(pos[2]))
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
@@ -476,7 +476,7 @@ class ElephantS570Node(Node):
             msg.header.frame_id = "base_link"
             msg.pose.position.x = float(pos[0]) * 2.0
             msg.pose.position.y = float(pos[1]) * 2.0
-            msg.pose.position.z = float(pos[2]) + 1.0
+            msg.pose.position.z = max(0.4, 0.5 + float(pos[2]))
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
