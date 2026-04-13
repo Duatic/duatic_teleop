@@ -57,14 +57,19 @@ def generate_launch_description():
     # =========================
     # Pyroki IK Node
     # =========================
-    pyroki_node = Node(
-        package='duatic_teleop_ik',
-        executable='interactive_pyroki_node',
-        name='interactive_pyroki_node',
-        parameters=[{
-            'use_interactive_markers': False
-        }],
-        output='screen'
+    pyroki_node = TimerAction(
+        period=10.0,  # adjust if needed (2–5s typical)
+        actions=[
+            Node(
+                package='duatic_teleop_ik',
+                executable='interactive_pyroki_node',
+                name='interactive_pyroki_node',
+                parameters=[{
+                    'use_interactive_markers': False
+                }],
+                output='screen'
+            )
+        ]
     )
 
     # =========================
