@@ -195,6 +195,7 @@ class InteractivePyrokiNode(Node):
 
     def _setup_pose_subscribers(self):
         """Create PoseStamped subscribers for non-interactive mode."""
+        self.log_counter = 0
         if self.robot_structure == "single_arm":
             self.create_subscription(
                 PoseStamped,
@@ -418,7 +419,13 @@ class InteractivePyrokiNode(Node):
         """PoseStamped callback for non-interactive mode."""
         if not self.fully_initialized:
             return
-        self.get_logger().info(f"_pose_cb {msg}")
+            
+        if self.log_counter % 10 == 0:
+            self.get_logger().info(
+                f"arm {arm_index}: ({msg.pose.position.x:.3f}, {msg.pose.position.y:.3f}, {msg.pose.position.z:.3f}) | "
+            )
+        self.log_counter += 1
+
         with self._state_lock:
             arm = self.arm_states[arm_index]
             arm.target_pos = np.array(
