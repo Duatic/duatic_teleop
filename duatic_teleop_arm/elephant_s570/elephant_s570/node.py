@@ -196,6 +196,10 @@ class ElephantS570Node(Node):
             "right": [f"joint{i}" for i in range(8, 15)],
         }
 
+        # choose between teleop methods, currently available:
+        # 'mapped_actionspaces', 'remapping_deltas'
+        self.teleop_method: str = 'mapped_actionspaces'
+
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
 
@@ -381,7 +385,7 @@ class ElephantS570Node(Node):
     #  FK-based target computation                                        #
     # ------------------------------------------------------------------ #
 
-    def _compute_target(self, arm: S570ArmState) -> tuple[np.ndarray, np.ndarray] | None:
+    def _compute_target_delta_method(self, arm: S570ArmState) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute Cartesian target from S570 FK relative displacement.
 
         Returns (position[3], quaternion_wxyz[4]) or None.
@@ -403,8 +407,52 @@ class ElephantS570Node(Node):
 
         return target_pos, target_quat
 
+    def _compute_target_actionspace_method(self, arm: S570ArmState, side: str) -> tuple[np.ndarray, np.ndarray] | None:
+        """Compute Cartesian target by mapping teleop action space to robot action space."""
+
+        if arm.current_joints is None:
+            return None
+
+        # --- Teleop FK (absolute pose) ---
+        teleop_pos, teleop_quat = self.fk.compute(side, arm.current_joints)
+
+        self.get_logger().info(f"teleop pos {teleop_pos}")
+
+        # --- Teleop limits (LEFT reference space) ---
+        t_min = np.array([0.27, 0.0, -0.3])
+        t_max = np.array([0.51, 0.75, 0.1])
+
+        # --- Robot limits ---
+        r_min = np.array([0.66, 0.0, 0.51])
+        r_max = np.array([1.34, 1.17, 1.86])
+
+        # --- Mirror Y for right arm ---
+        if side == "right":
+            teleop_pos[1] = - teleop_pos[1]
+
+        # --- Cap teleop input if it exceeds limits ---
+        teleop_pos = np.clip(teleop_pos, t_min, t_max)
+
+        # --- Normalize to [0,1] ---
+        norm = (teleop_pos - t_min) / (t_max - t_min)
+
+        # --- Scale to robot workspace ---
+        target_pos = r_min + norm * (r_max - r_min)
+
+        # --- Mirror Y for right arm ---
+        if side == "right":
+            target_pos[1] = - target_pos[1]
+
+        self.get_logger().info(f"target pos {target_pos}")
+
+        # --- Orientation (unchanged) ---
+        target_quat = teleop_quat.copy()
+        target_quat /= np.linalg.norm(target_quat)
+
+        return target_pos, target_quat
+
     # ------------------------------------------------------------------ #
-    #  Publishing                                                         #
+    #  Publishing                                                        #
     # ------------------------------------------------------------------ #
 
     def _publish_targets(self) -> None:
@@ -422,19 +470,25 @@ class ElephantS570Node(Node):
             if side not in self.pose_pubs:
                 continue
 
-            result = self._compute_target(arm)
+
+            if self.teleop_method == 'remapping_deltas':
+                result = self._compute_target_delta_method(arm)
+            elif self.teleop_method == 'mapped_actionspaces':
+                result = self._compute_target_actionspace_method(arm, side)
+            else:
+                result = self._compute_target_actionspace_method(arm, side)
+
             if result is None:
                 continue
 
             pos, quat = result
-            pos, quat = self.fk.compute(side, arm.current_joints)
 
             msg = PoseStamped()
             msg.header.stamp = stamp
             msg.header.frame_id = "base_link"
-            msg.pose.position.x = float(pos[0]) * 2.0
-            msg.pose.position.y = float(pos[1]) * 2.0
-            msg.pose.position.z = max(0.4, 0.5 + float(pos[2]))
+            msg.pose.position.x = float(pos[0])
+            msg.pose.position.y = float(pos[1])
+            msg.pose.position.z = float(pos[2])
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
@@ -474,9 +528,9 @@ class ElephantS570Node(Node):
             msg = PoseStamped()
             msg.header.stamp = stamp
             msg.header.frame_id = "base_link"
-            msg.pose.position.x = float(pos[0]) * 2.0
-            msg.pose.position.y = float(pos[1]) * 2.0
-            msg.pose.position.z = max(0.4, 0.5 + float(pos[2]))
+            msg.pose.position.x = float(pos[0])
+            msg.pose.position.y = float(pos[1])
+            msg.pose.position.z = float(pos[2])
             msg.pose.orientation.w = float(quat[0])
             msg.pose.orientation.x = float(quat[1])
             msg.pose.orientation.y = float(quat[2])
