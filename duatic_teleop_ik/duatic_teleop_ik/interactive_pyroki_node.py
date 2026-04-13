@@ -479,7 +479,7 @@ class InteractivePyrokiNode(Node):
             p.positions = [float(full_q[i]) for i in indices]
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
-            p.time_from_start.nanosec = 100_000_000
+            p.time_from_start.nanosec = 1_000_000_000
 
             msg.points.append(p)
             publisher.publish(msg)
@@ -519,7 +519,6 @@ class InteractivePyrokiNode(Node):
                 t_pos = arm.target_pos.copy()
                 t_wxyz = arm.target_wxyz.copy()
             
-            self.get_logger().info(f"{arm.name} current arm.target_pos: {t_pos}")
 
             # Build prev_cfg: actual_q with this arm's smoothed values overlaid
             prev_cfg = actual_q.copy()
@@ -539,8 +538,6 @@ class InteractivePyrokiNode(Node):
 
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
-
-            self.get_logger().info(f"{arm.name} arm_q: {arm_q}, pos_err: {pos_err}, ori_err: {ori_err}")
 
             # Per-arm smoothing + velocity limiting
             arm.smoothed_arm_q = smooth_and_limit(
