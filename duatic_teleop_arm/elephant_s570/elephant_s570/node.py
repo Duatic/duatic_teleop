@@ -200,6 +200,15 @@ class ElephantS570Node(Node):
         # 'mapped_actionspaces', 'remapping_deltas'
         self.teleop_method: str = 'mapped_actionspaces'
 
+        self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
+
+        if self.dual_arm_robot:
+            for side in self._sides:
+                topic = f"/visu/target_pose/{side}"
+                self.visu_pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
+        else:
+            self.visu_pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, "/visu/target_pose", 10)
+
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
 
@@ -463,13 +472,10 @@ class ElephantS570Node(Node):
 
         # Always publish S570 FK end-effector markers (for debugging in S570 RViz)
         self._publish_s570_fk_markers(stamp)
-
+            
         for side, arm in self.arms.items():
-            if arm.phase != ArmPhase.ACTIVE:
-                continue
             if side not in self.pose_pubs:
                 continue
-
 
             if self.teleop_method == 'remapping_deltas':
                 result = self._compute_target_delta_method(arm)
@@ -494,10 +500,17 @@ class ElephantS570Node(Node):
             msg.pose.orientation.y = float(quat[2])
             msg.pose.orientation.z = float(quat[3])
 
+            if side in self.visu_pose_pubs:
+                self.visu_pose_pubs[side].publish(msg)
+
+            if arm.phase != ArmPhase.ACTIVE:
+                continue
+
             self.pose_pubs[side].publish(msg)
 
-            # Publish DynaArm target marker (for DynaArm RViz)
-            self._publish_pose_markers(self._target_marker_pub, msg, "base_link", f"target_{side}_")
+            self._publish_pose_markers(
+                self._target_marker_pub, msg, "base_link", f"target_{side}_"
+            )
 
     def _publish_urdf_joints(self, stamp) -> None:
         """Republish current joint angles with URDF joint names for visualization."""
