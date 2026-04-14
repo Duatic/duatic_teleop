@@ -486,13 +486,13 @@ class InteractivePyrokiNode(Node):
             p.positions = [float(full_q[i]) for i in indices]
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
-            p.time_from_start.nanosec = 1_000_000_000
+            p.time_from_start.nanosec = 500_000_000
 
             msg.points.append(p)
             publisher.publish(msg)
 
     def main_loop(self):
-        rate_sec = 0.02
+        rate_sec = 0.04
         while rclpy.ok():
             if not self.fully_initialized:
                 time.sleep(0.1)
