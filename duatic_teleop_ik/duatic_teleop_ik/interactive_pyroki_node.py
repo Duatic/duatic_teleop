@@ -490,6 +490,11 @@ class InteractivePyrokiNode(Node):
 
             p = JointTrajectoryPoint()
             p.positions = [float(full_q[i]) for i in indices]
+
+            # set last 2 joints straight and don't move them
+            n = len(p.positions)
+            for i in range(max(0, n - 2), n):
+                p.positions[i] = 0.0
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
             p.time_from_start.nanosec = 10_000_000_000
@@ -507,7 +512,7 @@ class InteractivePyrokiNode(Node):
                         "velocities": [0.0] * len(indices),
                         "time_from_start": {
                             "sec": 0,
-                            "nanosec": 500_000_000
+                            "nanosec": 10_000_000_000
                         }
                     }
                 ]
