@@ -425,7 +425,6 @@ class ElephantS570Node(Node):
         # --- Teleop FK (absolute pose) ---
         teleop_pos, teleop_quat = self.fk.compute(side, arm.current_joints)
 
-        self.get_logger().info(f"teleop pos {teleop_pos}")
 
         # --- Teleop limits (LEFT reference space) ---
         t_min = np.array([0.27, 0.0, -0.3])
@@ -451,8 +450,6 @@ class ElephantS570Node(Node):
         # --- Mirror Y for right arm ---
         if side == "right":
             target_pos[1] = - target_pos[1]
-
-        self.get_logger().info(f"target pos {target_pos}")
 
         # --- Orientation (unchanged) ---
         target_quat = teleop_quat.copy()
