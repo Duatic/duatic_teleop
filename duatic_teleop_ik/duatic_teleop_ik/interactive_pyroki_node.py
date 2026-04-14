@@ -34,6 +34,9 @@ from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import Duatic
 
 from jaxlie import SE3
 
+import websocket
+import json
+
 
 @dataclass
 class ArmState:
@@ -66,12 +69,18 @@ class InteractivePyrokiNode(Node):
         super().__init__("interactive_pyroki_node")
 
         self.declare_parameter("target_link_name", "flange")
-        self.declare_parameter("use_interactive_markers", True)
+        self.declare_parameter("use_interactive_markers", False)
         self.declare_parameter("solve_mode", "decoupled")
+        self.declare_parameter("uri", "ws://192.168.89.157:9090")
 
         self.target_link_name = self.get_parameter("target_link_name").value
         self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
         self.solve_mode = self.get_parameter("solve_mode").value
+        self.rosbridge_uri = self.get_parameter("uri").value
+
+        self.ws = websocket.WebSocket()
+        self.ws.connect(self.rosbridge_uri)
+        self.advertised_topics = set()
 
         if self.solve_mode not in VALID_SOLVE_MODES:
             self.get_logger().warn(
@@ -265,7 +274,6 @@ class InteractivePyrokiNode(Node):
                 }
 
                 for i, jname in enumerate(self.joint_names):
-                    self.get_logger().info(f"joint name: {jname}")
 
                     is_this_arm = jname.startswith(f"{arm.name}/")
                     is_hip = include_hip and jname.startswith("hip")
@@ -346,7 +354,6 @@ class InteractivePyrokiNode(Node):
                 # Extract this arm's joints from the solution
                 arm_q = np.array([solution[i] for i in arm.joint_indices])
 
-                self.get_logger().info(f"FK_ target to check solver output: {arm.name} arm_q: {arm_q}, pos_err: {pos_err}, ori_err: {ori_err}")
 
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
@@ -472,7 +479,6 @@ class InteractivePyrokiNode(Node):
     def _split_and_publish(self, full_q, full_velocities):
         """Split full joint solution into per-controller JointTrajectory messages."""
         stamp = self.get_clock().now().to_msg()
-
         for comp_name, publisher in self.traj_publishers.items():
             joint_names, indices = self._pub_joint_map[comp_name]
             if not indices:
@@ -490,6 +496,50 @@ class InteractivePyrokiNode(Node):
 
             msg.points.append(p)
             publisher.publish(msg)
+
+            topic = publisher.topic_name  # wichtig!
+
+            ros_msg = {
+                "joint_names": joint_names,
+                "points": [
+                    {
+                        "positions": [float(full_q[i]) for i in indices],
+                        "velocities": [0.0] * len(indices),
+                        "time_from_start": {
+                            "sec": 0,
+                            "nanosec": 500_000_000
+                        }
+                    }
+                ]
+            }
+
+            # 1. Advertise (einmal pro Topic nötig)
+            advertise_msg = {
+                "op": "advertise",
+                "topic": topic,
+                "type": "trajectory_msgs/JointTrajectory"
+            }
+
+            # 2. Publish
+            publish_msg = {
+                "op": "publish",
+                "topic": topic,
+                "msg": ros_msg
+            }
+
+            # rosbridge doesn't know the type if topic not yet published -> error
+            # advertise it once
+            try:
+                if topic not in self.advertised_topics:
+                    self.ws.send(json.dumps(advertise_msg))
+                    self.advertised_topics.add(topic)
+            except Exception as e:
+                self.get_logger().error(f"Advertising WebSocket send failed: {e}")
+
+            try:
+                self.ws.send(json.dumps(publish_msg))
+            except Exception as e:
+                self.get_logger().error(f"WebSocket send failed: {e}")
 
     def main_loop(self):
         rate_sec = 0.04
@@ -545,7 +595,6 @@ class InteractivePyrokiNode(Node):
 
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
-
             # Per-arm smoothing + velocity limiting
             arm.smoothed_arm_q = smooth_and_limit(
                 arm_q,
@@ -569,7 +618,6 @@ class InteractivePyrokiNode(Node):
 
         self.last_full_q = full_cfg.copy()
         self.last_time = current_time
-
         self._split_and_publish(full_cfg, velocities)
 
     def _control_step_whole_body(self, rate_sec):
