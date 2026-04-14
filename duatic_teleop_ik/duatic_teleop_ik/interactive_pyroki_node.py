@@ -492,7 +492,7 @@ class InteractivePyrokiNode(Node):
             publisher.publish(msg)
 
     def main_loop(self):
-        rate_sec = 0.04
+        rate_sec = 0.02
         while rclpy.ok():
             if not self.fully_initialized:
                 time.sleep(0.1)
