@@ -39,6 +39,7 @@ setup(
         "console_scripts": [
             "elephant_s570_node = elephant_s570.node:main",
             "s570_hardware_node = elephant_s570.s570_hardware_node:main",
+            "publish_teleop_to_rosbridge_node = elephant_s570.publish_teleop_to_rosbridge_node:main",
         ],
     },
 )
