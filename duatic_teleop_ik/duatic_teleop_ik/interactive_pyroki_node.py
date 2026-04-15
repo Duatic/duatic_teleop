@@ -324,7 +324,6 @@ class InteractivePyrokiNode(Node):
                 if name in msg.name:
                     new_q[i] = msg.position[msg.name.index(name)]
             self.current_q = np.array(new_q)
-            self.get_logger().info(f"update current_q {self.current_q}")
 
         if not self.fully_initialized and self.solver is not None:
             self._initialize_targets()
