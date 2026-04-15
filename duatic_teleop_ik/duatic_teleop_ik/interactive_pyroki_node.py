@@ -72,15 +72,18 @@ class InteractivePyrokiNode(Node):
         self.declare_parameter("use_interactive_markers", False)
         self.declare_parameter("solve_mode", "decoupled")
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
+        self.declare_parameter("rosbridge", False)
 
         self.target_link_name = self.get_parameter("target_link_name").value
         self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
         self.solve_mode = self.get_parameter("solve_mode").value
         self.rosbridge_uri = self.get_parameter("uri").value
+        self.use_rosbridge = self.get_parameter("rosbridge").value
 
-        self.ws = websocket.WebSocket()
-        self.ws.connect(self.rosbridge_uri)
-        self.advertised_topics = set()
+        if self.use_rosbridge:
+            self.ws = websocket.WebSocket()
+            self.ws.connect(self.rosbridge_uri)
+            self.advertised_topics = set()
 
         if self.solve_mode not in VALID_SOLVE_MODES:
             self.get_logger().warn(
@@ -504,47 +507,48 @@ class InteractivePyrokiNode(Node):
 
             topic = publisher.topic_name  # wichtig!
 
-            ros_msg = {
-                "joint_names": joint_names,
-                "points": [
-                    {
-                        "positions": [float(full_q[i]) for i in indices],
-                        "velocities": [0.0] * len(indices),
-                        "time_from_start": {
-                            "sec": 0,
-                            "nanosec": 10_000_000_000
+            if self.use_rosbridge:
+                ros_msg = {
+                    "joint_names": joint_names,
+                    "points": [
+                        {
+                            "positions": list(p.positions),
+                            "velocities": list(p.velocities),
+                            "time_from_start": {
+                                "sec": p.time_from_start.sec,
+                                "nanosec": p.time_from_start.nanosec
+                            }
                         }
-                    }
-                ]
-            }
+                    ]
+                }
 
-            # 1. Advertise (einmal pro Topic nötig)
-            advertise_msg = {
-                "op": "advertise",
-                "topic": topic,
-                "type": "trajectory_msgs/JointTrajectory"
-            }
+                # 1. Advertise (einmal pro Topic nötig)
+                advertise_msg = {
+                    "op": "advertise",
+                    "topic": topic,
+                    "type": "trajectory_msgs/JointTrajectory"
+                }
 
-            # 2. Publish
-            publish_msg = {
-                "op": "publish",
-                "topic": topic,
-                "msg": ros_msg
-            }
+                # 2. Publish
+                publish_msg = {
+                    "op": "publish",
+                    "topic": topic,
+                    "msg": ros_msg
+                }
 
-            # rosbridge doesn't know the type if topic not yet published -> error
-            # advertise it once
-            try:
-                if topic not in self.advertised_topics:
-                    self.ws.send(json.dumps(advertise_msg))
-                    self.advertised_topics.add(topic)
-            except Exception as e:
-                self.get_logger().error(f"Advertising WebSocket send failed: {e}")
+                # rosbridge doesn't know the type if topic not yet published -> error
+                # advertise it once
+                try:
+                    if topic not in self.advertised_topics:
+                        self.ws.send(json.dumps(advertise_msg))
+                        self.advertised_topics.add(topic)
+                except Exception as e:
+                    self.get_logger().error(f"Advertising WebSocket send failed: {e}")
 
-            try:
-                self.ws.send(json.dumps(publish_msg))
-            except Exception as e:
-                self.get_logger().error(f"WebSocket send failed: {e}")
+                try:
+                    self.ws.send(json.dumps(publish_msg))
+                except Exception as e:
+                    self.get_logger().error(f"WebSocket send failed: {e}")
 
     def main_loop(self):
         rate_sec = 0.04
