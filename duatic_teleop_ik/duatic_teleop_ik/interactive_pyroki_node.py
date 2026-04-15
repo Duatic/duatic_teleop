@@ -236,6 +236,7 @@ class InteractivePyrokiNode(Node):
 
         try:
             self.solver = PyrokiIKSolver(msg.data)
+            #self.get_logger().info(f"Initialized solver with data {msg.data}")
             self.joint_names = self.solver.joint_names
 
             self.get_logger().info(
@@ -323,6 +324,7 @@ class InteractivePyrokiNode(Node):
                 if name in msg.name:
                     new_q[i] = msg.position[msg.name.index(name)]
             self.current_q = np.array(new_q)
+            self.get_logger().info(f"update current_q {self.current_q}")
 
         if not self.fully_initialized and self.solver is not None:
             self._initialize_targets()
@@ -333,6 +335,7 @@ class InteractivePyrokiNode(Node):
             if self.current_q is None:
                 return
             actual_q = self.current_q.copy()
+            self.get_logger().info(f"actual_q {actual_q}")
 
         robot = self.solver.robot
 
@@ -345,6 +348,18 @@ class InteractivePyrokiNode(Node):
                 pose = SE3(transforms[tcp_idx])
                 arm.target_wxyz = np.array(pose.rotation().wxyz)
                 arm.target_pos = np.array(pose.translation())
+                
+                indices = arm.joint_indices  # oder woher du sie bekommst
+
+                if any(6 <= i <= 11 for i in indices):
+                    arm_side = "left"
+                elif any(12 <= i <= 17 for i in indices):
+                    arm_side = "right"
+                else:
+                    arm_side = "unknown"
+            
+                self.get_logger().info(f"{arm_side} arm.joint_mask {arm.joint_mask}")
+
 
                 solution, pos_err, ori_err = self.solver.solve(
                     arm.target_link,
@@ -356,6 +371,7 @@ class InteractivePyrokiNode(Node):
 
                 # Extract this arm's joints from the solution
                 arm_q = np.array([solution[i] for i in arm.joint_indices])
+                self.get_logger().info(f"{arm_side} initialized targets, arm_q {arm_q}")
 
 
         except Exception as e:
@@ -502,8 +518,27 @@ class InteractivePyrokiNode(Node):
             p.time_from_start.sec = 0
             p.time_from_start.nanosec = 10_000_000_000
 
+            if any(name.startswith("arm_left/") for name in joint_names):
+                arm = "left"
+            elif any(name.startswith("arm_right/") for name in joint_names):
+                arm = "right"
+            else:
+                arm = "unknown"
+            
+            # fix right arm in simple config to not use it for demo
+            if arm == "right":
+                p.positions = [
+                    -1.0416145252544908,
+                    0.6101221330300991,
+                    0.19395456840343228,
+                    4.166401175949662,
+                    0.06814717140322527,
+                    -0.12202450150742548,
+                ]
+
             msg.points.append(p)
             publisher.publish(msg)
+            self.get_logger().info(f"send command for arm {arm} position values: {p.positions}")
 
             topic = publisher.topic_name  # wichtig!
 
