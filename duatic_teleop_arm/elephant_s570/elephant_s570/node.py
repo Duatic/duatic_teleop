@@ -45,6 +45,9 @@ from duatic_dynaarm_extensions.duatic_helpers.duatic_controller_helper import (
 )
 from elephant_s570.fk import S570FK
 
+import websocket
+import json
+
 
 def _quat_to_rotation_matrix(q_wxyz: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
@@ -108,6 +111,14 @@ class ElephantS570Node(Node):
         self.declare_parameter("robot_home_quat_z", 0.0)
         self.declare_parameter("robot_base_frame", "base_link")
         self.declare_parameter("robot_ee_frame", "flange")
+        self.declare_parameter("uri", "ws://192.168.89.157:9090")
+
+        
+        self.rosbridge_uri = self.get_parameter("uri").value
+
+        self.ws = websocket.WebSocket()
+        self.ws.connect(self.rosbridge_uri)
+        self.advertised_topics = set()
 
         self.arm_side: str = self.get_parameter("arm_side").value
         self.dual_arm_robot: bool = self.get_parameter("dual_arm_robot").value
@@ -499,6 +510,57 @@ class ElephantS570Node(Node):
 
             if side in self.visu_pose_pubs:
                 self.visu_pose_pubs[side].publish(msg)
+
+            topic = self.visu_pose_pubs[side].topic_name
+
+            ros_msg = {
+                "header": {
+                    "stamp": {
+                        "sec": int(stamp.sec),
+                        "nanosec": int(stamp.nanosec)
+                    },
+                    "frame_id": "base_link"
+                },
+                "pose": {
+                    "position": {
+                        "x": float(pos[0]),
+                        "y": float(pos[1]),
+                        "z": float(pos[2])
+                    },
+                    "orientation": {
+                        "w": float(quat[0]),
+                        "x": float(quat[1]),
+                        "y": float(quat[2]),
+                        "z": float(quat[3])
+                    }
+                }
+            }
+
+            # 1. Advertise
+            advertise_msg = {
+                "op": "advertise",
+                "topic": topic,
+                "type": "geometry_msgs/PoseStamped"
+            }
+
+            # 2. Publish
+            publish_msg = {
+                "op": "publish",
+                "topic": topic,
+                "msg": ros_msg
+            }
+
+            try:
+                if topic not in self.advertised_topics:
+                    self.ws.send(json.dumps(advertise_msg))
+                    self.advertised_topics.add(topic)
+            except Exception as e:
+                self.get_logger().error(f"Advertising WebSocket send failed: {e}")
+
+            try:
+                self.ws.send(json.dumps(publish_msg))
+            except Exception as e:
+                self.get_logger().error(f"WebSocket send failed: {e}")
 
             if arm.phase != ArmPhase.ACTIVE:
                 continue
