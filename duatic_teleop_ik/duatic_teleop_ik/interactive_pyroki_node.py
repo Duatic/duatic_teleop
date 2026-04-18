@@ -111,8 +111,8 @@ class InteractivePyrokiNode(Node):
         self.smoothed_q = None  # used by whole_body mode
         self.last_smoothed_q = None  # used by whole_body mode
 
-        self.alpha_filter = 0.15
-        self.max_joint_velocity = 0.5  # rad/s
+        self.alpha_filter = 0.85
+        self.max_joint_velocity = 10.0  # rad/s
 
         self._state_lock = threading.Lock()
         self.fully_initialized = False
