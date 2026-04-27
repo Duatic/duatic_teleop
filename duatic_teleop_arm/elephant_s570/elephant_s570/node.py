@@ -112,13 +112,16 @@ class ElephantS570Node(Node):
         self.declare_parameter("robot_base_frame", "base_link")
         self.declare_parameter("robot_ee_frame", "flange")
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
+        self.declare_parameter("rosbridge", False)
 
         
-        self.rosbridge_uri = self.get_parameter("uri").value
-
-        self.ws = websocket.WebSocket()
-        self.ws.connect(self.rosbridge_uri)
-        self.advertised_topics = set()
+        self.use_rosbridge = self.get_parameter("rosbridge").value
+        if self.use_rosbridge:
+            self.rosbridge_uri = self.get_parameter("uri").value
+            
+            self.ws = websocket.WebSocket()
+            self.ws.connect(self.rosbridge_uri)
+            self.advertised_topics = set()
 
         self.arm_side: str = self.get_parameter("arm_side").value
         self.dual_arm_robot: bool = self.get_parameter("dual_arm_robot").value
@@ -209,7 +212,7 @@ class ElephantS570Node(Node):
 
         # choose between teleop methods, currently available:
         # 'mapped_actionspaces', 'remapping_deltas'
-        self.teleop_method: str = 'mapped_actionspaces'
+        self.teleop_method: str = 'remapping_deltas'
 
         self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
@@ -550,17 +553,18 @@ class ElephantS570Node(Node):
                 "msg": ros_msg
             }
 
-            try:
-                if topic not in self.advertised_topics:
-                    self.ws.send(json.dumps(advertise_msg))
-                    self.advertised_topics.add(topic)
-            except Exception as e:
-                self.get_logger().error(f"Advertising WebSocket send failed: {e}")
+            if self.use_rosbridge:
+                try:
+                    if topic not in self.advertised_topics:
+                        self.ws.send(json.dumps(advertise_msg))
+                        self.advertised_topics.add(topic)
+                except Exception as e:
+                    self.get_logger().error(f"Advertising WebSocket send failed: {e}")
 
-            try:
-                self.ws.send(json.dumps(publish_msg))
-            except Exception as e:
-                self.get_logger().error(f"WebSocket send failed: {e}")
+                try:
+                    self.ws.send(json.dumps(publish_msg))
+                except Exception as e:
+                    self.get_logger().error(f"WebSocket send failed: {e}")
 
             if arm.phase != ArmPhase.ACTIVE:
                 continue
