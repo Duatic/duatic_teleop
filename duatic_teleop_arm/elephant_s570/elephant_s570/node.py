@@ -426,6 +426,9 @@ class ElephantS570Node(Node):
                 self._deactivate_controllers()
     
     def _activate_axis_lock(self, arm: S570ArmState) -> None:
+
+        arm.home_joints = arm.current_joints.copy()
+        
         # Capture current DynaArm EE pose as robot home
         tf_result = self._lookup_robot_ee_pose(arm.side)
         if tf_result is not None:
