@@ -49,6 +49,7 @@ import websocket
 import json
 
 
+
 def _quat_to_rotation_matrix(q_wxyz: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
     w, x, y, z = q_wxyz
@@ -79,6 +80,11 @@ class S570ArmState:
         # Robot EE pose captured on activation (from TF or parameter fallback)
         self.robot_home_pos: np.ndarray | None = None
         self.robot_home_quat: np.ndarray | None = None
+        self.axis_lock_active = False
+        self.axis_lock_quat: np.ndarray | None = None
+        self.axis_lock_axis: np.ndarray | None = None  # z-axis in base frame
+        self.prev_quat: np.ndarray | None = None
+        self.stable_counter = 0
 
 
 def _quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
@@ -181,6 +187,7 @@ class ElephantS570Node(Node):
         #   axes[0-1]    = Left  Joystick X, Y
         #   axes[2-3]    = Right Joystick X, Y
         self._deadman_button_index = {"left": 0, "right": 4}
+        self._axis_lock_button_index = {"right": 5}
 
         # --- Target pose publishers ---
         base_topic = "/cartesian_pose_controller/target_pose"
@@ -231,6 +238,8 @@ class ElephantS570Node(Node):
             f"dual_arm_robot={self.dual_arm_robot}"
         )
         self.get_logger().info("Hold Button A on S570 to start teleop.")
+
+        self.axis_pub = self.create_publisher(Marker, "/axis_lock_marker", 10)
 
     # ------------------------------------------------------------------ #
     #  Controller switching                                               #
@@ -312,6 +321,12 @@ class ElephantS570Node(Node):
             right_btn_idx < len(msg.buttons) and msg.buttons[right_btn_idx] == 0  # Active-low
         )
 
+        # --- Axis lock button right ---
+        axis_btn_idx = self._axis_lock_button_index["right"]
+        axis_pressed = (
+            axis_btn_idx < len(msg.buttons) and msg.buttons[axis_btn_idx] == 0
+        )
+
         for side, arm in self.arms.items():
             # Left buttons are defective — use right button A for both arms
             if side == "left":
@@ -329,6 +344,12 @@ class ElephantS570Node(Node):
                 self._arm_activate(arm)
             elif not is_held and was_held:
                 self._arm_deactivate(arm)
+
+            if side == "right":
+                if axis_pressed and not arm.axis_lock_active:
+                    self._activate_axis_lock(arm)
+                elif not axis_pressed and arm.axis_lock_active:
+                    self._deactivate_axis_lock(arm)
 
     # ------------------------------------------------------------------ #
     #  Arm activation                                                     #
@@ -403,6 +424,125 @@ class ElephantS570Node(Node):
             # Only deactivate controllers when ALL arms are released
             if not self._any_arm_active():
                 self._deactivate_controllers()
+    
+    def _activate_axis_lock(self, arm: S570ArmState) -> None:
+        # Capture current DynaArm EE pose as robot home
+        tf_result = self._lookup_robot_ee_pose(arm.side)
+        if tf_result is not None:
+            arm.robot_home_pos, arm.robot_home_quat = tf_result
+            self.get_logger().info(
+                f"S570 {arm.side} — DynaArm EE captured at "
+                f"pos={arm.robot_home_pos.round(3).tolist()}, "
+                f"quat={arm.robot_home_quat.round(3).tolist()}"
+            )
+        else:
+            arm.robot_home_pos = self.robot_home_pos.copy()
+            arm.robot_home_quat = self.robot_home_quat.copy()
+            self.get_logger().warn(f"S570 {arm.side} — using parameter fallback for robot home")
+            self.get_logger().warn("Axis lock failed: no TF")
+            return
+
+        pos, quat = tf_result
+
+        # 👉 Warten bis stabil
+        if not self._is_orientation_stable(arm, quat):
+            self.get_logger().info("Waiting for stable orientation...")
+            return
+
+        # 👉 Jetzt erst locken
+        arm.axis_lock_quat = quat.copy()
+
+        R = _quat_to_rotation_matrix(quat)
+        z_axis = R[:, 2]
+
+        arm.axis_lock_axis = z_axis / np.linalg.norm(z_axis)
+        arm.axis_lock_active = True
+
+        self._publish_axis_marker(arm, arm.axis_lock_axis)
+
+        self.get_logger().info(
+            f"[{arm.side}] Axis lock ACTIVATED — axis={arm.axis_lock_axis.round(3)}"
+        )
+
+        arm.phase = ArmPhase.ACTIVE
+
+        # Switch controllers on first arm activation
+        self._activate_controllers()
+    
+    def _is_orientation_stable(self, arm, current_quat, threshold=0.9995, steps=5):
+        if arm.prev_quat is None:
+            arm.prev_quat = current_quat
+            return False
+
+        dot = abs(np.dot(current_quat, arm.prev_quat))
+
+        if dot > threshold:
+            arm.stable_counter += 1
+        else:
+            arm.stable_counter = 0
+
+        arm.prev_quat = current_quat
+
+        return arm.stable_counter >= steps
+    
+
+    def _publish_axis_marker(self, arm, axis):
+        tf_result = self._lookup_robot_ee_pose(arm.side)
+        if tf_result is None:
+            return
+
+        pos, _ = tf_result
+
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.header.stamp = self.get_clock().now().to_msg()
+
+        marker.ns = "axis_lock"
+        marker.id = 0 if arm.side == "left" else 1
+        marker.type = Marker.ARROW
+        marker.action = Marker.ADD
+
+        start = Point(x=pos[0], y=pos[1], z=pos[2])
+
+        scale = 0.2
+        end = Point(
+            x=pos[0] + axis[0] * scale,
+            y=pos[1] + axis[1] * scale,
+            z=pos[2] + axis[2] * scale,
+        )
+
+        marker.points = [start, end]
+
+        marker.scale.x = 0.01
+        marker.scale.y = 0.02
+        marker.scale.z = 0.02
+
+        marker.color.r = 1.0
+        marker.color.a = 1.0
+
+        self.axis_pub.publish(marker)
+
+
+    def _deactivate_axis_lock(self, arm: S570ArmState) -> None:
+        arm.axis_lock_active = False
+        arm.axis_lock_axis = None
+        arm.axis_lock_quat = None
+
+        self.get_logger().info(f"[{arm.side}] Axis lock DEACTIVATED")
+
+        arm.phase = ArmPhase.READY
+
+        # Only deactivate controllers when ALL arms are released
+        if not self._any_arm_active():
+            self._deactivate_controllers()
+    
+    def _project_motion_to_axis(
+        self,
+        delta_pos: np.ndarray,
+        axis: np.ndarray
+    ) -> np.ndarray:
+        """Project arbitrary motion onto a given axis."""
+        return np.dot(delta_pos, axis) * axis
 
     # ------------------------------------------------------------------ #
     #  FK-based target computation                                        #
@@ -471,6 +611,52 @@ class ElephantS570Node(Node):
 
         return target_pos, target_quat
 
+    def _compute_target_lock_axis(
+        self,
+        arm: S570ArmState,
+        side: str
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Move only along locked EE axis (z-axis of flange), orientation fixed."""
+
+        if (
+            arm.current_joints is None
+            or arm.home_joints is None
+            or arm.robot_home_pos is None
+            or arm.axis_lock_axis is None
+            or arm.axis_lock_quat is None
+        ):
+            return None
+
+        # --- FK current + home ---
+        current_pos, _ = self.fk.compute(side, arm.current_joints)
+        home_pos, _ = self.fk.compute(side, arm.home_joints)
+
+        # --- Delta in teleop space ---
+        delta_pos = current_pos - home_pos
+
+        # --- Optional: nur X-Achse vom Teleop verwenden ---
+        # (vor/zurück Bewegung isolieren)
+        delta_x = delta_pos[0]
+
+        axis = arm.axis_lock_axis
+        projected = delta_x * axis
+
+        print("axis:", axis)
+        print("delta_x:", delta_x)
+        print("projected:", projected)
+        cos_angle = np.dot(projected, axis) / np.linalg.norm(projected)
+        print("alignment:", cos_angle)
+
+        print("robot_home_pos:", arm.robot_home_pos)
+        print("axis_lock_axis:", arm.axis_lock_axis)
+
+        target_pos = arm.robot_home_pos + projected
+
+        # --- Orientierung bleibt fix ---
+        target_quat = arm.axis_lock_quat.copy()
+
+        return target_pos, target_quat
+
     # ------------------------------------------------------------------ #
     #  Publishing                                                        #
     # ------------------------------------------------------------------ #
@@ -488,12 +674,16 @@ class ElephantS570Node(Node):
             if side not in self.pose_pubs:
                 continue
 
-            if self.teleop_method == 'remapping_deltas':
-                result = self._compute_target_delta_method(arm)
-            elif self.teleop_method == 'mapped_actionspaces':
-                result = self._compute_target_actionspace_method(arm, side)
+            # --- Teleop mode selection ---
+            if arm.axis_lock_active:
+                result = self._compute_target_lock_axis(arm, side)
             else:
-                result = self._compute_target_actionspace_method(arm, side)
+                if self.teleop_method == 'remapping_deltas':
+                    result = self._compute_target_delta_method(arm)
+                elif self.teleop_method == 'mapped_actionspaces':
+                    result = self._compute_target_actionspace_method(arm, side)
+                else:
+                    result = self._compute_target_actionspace_method(arm, side)
 
             if result is None:
                 continue
@@ -516,44 +706,44 @@ class ElephantS570Node(Node):
 
             topic = self.visu_pose_pubs[side].topic_name
 
-            ros_msg = {
-                "header": {
-                    "stamp": {
-                        "sec": int(stamp.sec),
-                        "nanosec": int(stamp.nanosec)
+            if self.use_rosbridge:
+                ros_msg = {
+                    "header": {
+                        "stamp": {
+                            "sec": int(stamp.sec),
+                            "nanosec": int(stamp.nanosec)
+                        },
+                        "frame_id": "base_link"
                     },
-                    "frame_id": "base_link"
-                },
-                "pose": {
-                    "position": {
-                        "x": float(pos[0]),
-                        "y": float(pos[1]),
-                        "z": float(pos[2])
-                    },
-                    "orientation": {
-                        "w": float(quat[0]),
-                        "x": float(quat[1]),
-                        "y": float(quat[2]),
-                        "z": float(quat[3])
+                    "pose": {
+                        "position": {
+                            "x": float(pos[0]),
+                            "y": float(pos[1]),
+                            "z": float(pos[2])
+                        },
+                        "orientation": {
+                            "w": float(quat[0]),
+                            "x": float(quat[1]),
+                            "y": float(quat[2]),
+                            "z": float(quat[3])
+                        }
                     }
                 }
-            }
 
-            # 1. Advertise
-            advertise_msg = {
-                "op": "advertise",
-                "topic": topic,
-                "type": "geometry_msgs/PoseStamped"
-            }
+                # 1. Advertise
+                advertise_msg = {
+                    "op": "advertise",
+                    "topic": topic,
+                    "type": "geometry_msgs/PoseStamped"
+                }
 
-            # 2. Publish
-            publish_msg = {
-                "op": "publish",
-                "topic": topic,
-                "msg": ros_msg
-            }
+                # 2. Publish
+                publish_msg = {
+                    "op": "publish",
+                    "topic": topic,
+                    "msg": ros_msg
+                }
 
-            if self.use_rosbridge:
                 try:
                     if topic not in self.advertised_topics:
                         self.ws.send(json.dumps(advertise_msg))
