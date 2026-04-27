@@ -112,7 +112,7 @@ class InteractivePyrokiNode(Node):
         self.last_smoothed_q = None  # used by whole_body mode
 
         self.alpha_filter = 0.85
-        self.max_joint_velocity = 10.0  # rad/s
+        self.max_joint_velocity = 3.0  # rad/s
 
         self._state_lock = threading.Lock()
         self.fully_initialized = False
@@ -512,12 +512,12 @@ class InteractivePyrokiNode(Node):
             p.positions = [float(full_q[i]) for i in indices]
 
             # set last 2 joints straight and don't move them
-            n = len(p.positions)
-            for i in range(max(0, n - 2), n):
-                p.positions[i] = 0.0
+            # n = len(p.positions)
+            # for i in range(max(0, n - 2), n):
+            #     p.positions[i] = 0.0
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
-            p.time_from_start.nanosec = 10_000_000
+            p.time_from_start.nanosec = 100_000_000
 
             # if any(name.startswith("arm_left/") for name in joint_names):
             #     arm = "left"
