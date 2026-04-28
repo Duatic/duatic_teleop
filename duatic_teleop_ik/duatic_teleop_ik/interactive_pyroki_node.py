@@ -517,7 +517,7 @@ class InteractivePyrokiNode(Node):
             #     p.positions[i] = 0.0
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
-            p.time_from_start.nanosec = 100_000_000
+            p.time_from_start.nanosec = 200_000_000
 
             # if any(name.startswith("arm_left/") for name in joint_names):
             #     arm = "left"
