@@ -220,7 +220,7 @@ class ElephantS570Node(Node):
 
         # choose between teleop methods, currently available:
         # 'mapped_actionspaces', 'remapping_deltas'
-        self.teleop_method: str = 'mapped_actionspaces'
+        self.teleop_method: str = 'remapping_deltas'
 
         self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
@@ -552,7 +552,7 @@ class ElephantS570Node(Node):
     #  FK-based target computation                                        #
     # ------------------------------------------------------------------ #
 
-    def _compute_target_delta_method(self, arm: S570ArmState) -> tuple[np.ndarray, np.ndarray] | None:
+    def _compute_target_delta_method(self, arm: S570ArmState, side: str) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute Cartesian target from S570 FK relative displacement.
 
         Returns (position[3], quaternion_wxyz[4]) or None.
@@ -565,6 +565,9 @@ class ElephantS570Node(Node):
             arm.side, arm.home_joints, arm.current_joints
         )
 
+        # use not relative but normal pose for orientation
+        teleop_pos, teleop_quat = self.fk.compute(side, arm.current_joints)
+
         # stretch delta_pos because arm has much bigger range of motion
         delta_pos = delta_pos * 2
 
@@ -572,7 +575,7 @@ class ElephantS570Node(Node):
         target_pos = arm.robot_home_pos + delta_pos
 
         # Orientation: delta is in base frame, so apply as delta * home
-        target_quat = _quat_multiply(delta_quat, arm.robot_home_quat)
+        target_quat = self._align_teleop_frame_with_flange_frame(teleop_quat)
         target_quat /= np.linalg.norm(target_quat)
 
         return target_pos, target_quat
@@ -709,7 +712,7 @@ class ElephantS570Node(Node):
                 result = self._compute_target_lock_axis(arm, side)
             else:
                 if self.teleop_method == 'remapping_deltas':
-                    result = self._compute_target_delta_method(arm)
+                    result = self._compute_target_delta_method(arm, side)
                 elif self.teleop_method == 'mapped_actionspaces':
                     result = self._compute_target_actionspace_method(arm, side)
                 else:
