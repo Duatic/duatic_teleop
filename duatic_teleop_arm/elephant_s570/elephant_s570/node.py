@@ -39,6 +39,7 @@ from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from tf2_ros import Buffer, TransformListener
+from tf_transformations import quaternion_multiply, quaternion_from_matrix
 
 from duatic_dynaarm_extensions.duatic_helpers.duatic_controller_helper import (
     DuaticControllerHelper,
@@ -219,7 +220,7 @@ class ElephantS570Node(Node):
 
         # choose between teleop methods, currently available:
         # 'mapped_actionspaces', 'remapping_deltas'
-        self.teleop_method: str = 'remapping_deltas'
+        self.teleop_method: str = 'mapped_actionspaces'
 
         self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
@@ -564,6 +565,9 @@ class ElephantS570Node(Node):
             arm.side, arm.home_joints, arm.current_joints
         )
 
+        # stretch delta_pos because arm has much bigger range of motion
+        delta_pos = delta_pos * 2
+
         # Apply delta to the captured DynaArm EE pose
         target_pos = arm.robot_home_pos + delta_pos
 
@@ -608,11 +612,34 @@ class ElephantS570Node(Node):
         if side == "right":
             target_pos[1] = - target_pos[1]
 
-        # --- Orientation (unchanged) ---
-        target_quat = teleop_quat.copy()
+        # --- Orientation (align teleop coord frame with flange coord frame) ---
+        target_quat = self._align_teleop_frame_with_flange_frame(teleop_quat)
         target_quat /= np.linalg.norm(target_quat)
 
         return target_pos, target_quat
+    
+    def _align_teleop_frame_with_flange_frame(self, teleop_quat):
+        # teleop basis
+        x_t = np.array([1, 0, 0])
+        y_t = np.array([0, 1, 0])
+        z_t = np.array([0, 0, 1])
+
+        # desired robot axes expressed in teleop frame
+        z_r = -x_t            # teleop x → robot z
+        y_r = y_t            # teleop z → robot y
+        x_r = np.cross(y_r, z_r)  # enforce right-handed system
+
+        # build rotation matrix (columns = robot axes in teleop frame)
+        R = np.column_stack((x_r, y_r, z_r))
+
+        R_h = np.eye(4)
+        R_h[:3, :3] = R
+
+        q_offset = quaternion_from_matrix(R_h)
+
+        target_quat = quaternion_multiply(q_offset, teleop_quat)
+
+        return target_quat
 
     def _compute_target_lock_axis(
         self,
