@@ -187,7 +187,9 @@ class ElephantS570Node(Node):
         #   buttons[4-7] = Right A, B, C, D
         #   axes[0-1]    = Left  Joystick X, Y
         #   axes[2-3]    = Right Joystick X, Y
-        self._deadman_button_index = {"left": 0, "right": 4}
+        self._deadman_button_index = {"left": 0, "right": 4, "grasp": 5}
+        self.grasping_button_previous_state = None
+        self.grasping_button_was_already_pressed = False
         self._axis_lock_button_index = {"right": 5}
 
         # --- Target pose publishers ---
@@ -569,7 +571,7 @@ class ElephantS570Node(Node):
         teleop_pos, teleop_quat = self.fk.compute(side, arm.current_joints)
 
         # stretch delta_pos because arm has much bigger range of motion
-        delta_pos = delta_pos * 2
+        # delta_pos = delta_pos * 2
 
         # Apply delta to the captured DynaArm EE pose
         target_pos = arm.robot_home_pos + delta_pos
@@ -673,15 +675,6 @@ class ElephantS570Node(Node):
 
         axis = arm.axis_lock_axis
         projected = delta_x * axis
-
-        print("axis:", axis)
-        print("delta_x:", delta_x)
-        print("projected:", projected)
-        cos_angle = np.dot(projected, axis) / np.linalg.norm(projected)
-        print("alignment:", cos_angle)
-
-        print("robot_home_pos:", arm.robot_home_pos)
-        print("axis_lock_axis:", arm.axis_lock_axis)
 
         target_pos = arm.robot_home_pos + projected
 
