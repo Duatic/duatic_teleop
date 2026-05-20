@@ -85,6 +85,7 @@ class S570ArmState:
         self.axis_lock_quat: np.ndarray | None = None
         self.axis_lock_axis: np.ndarray | None = None  # z-axis in base frame
         self.prev_quat: np.ndarray | None = None
+        self.prev_target_pos: np.ndarray | None = None
         self.stable_counter = 0
 
 
@@ -235,6 +236,7 @@ class ElephantS570Node(Node):
 
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
+        self.log_counter = 0
 
         self.get_logger().info(
             f"Elephant S570 node ready — arm_side={self.arm_side}, "
@@ -575,6 +577,69 @@ class ElephantS570Node(Node):
 
         # Apply delta to the captured DynaArm EE pose
         target_pos = arm.robot_home_pos + delta_pos
+
+        if self.log_counter % 25 == 0:
+            self.get_logger().info(
+                f"{arm.side} — "
+                f"target pos={target_pos.round(3).tolist()}, "
+            )
+
+        ## Add simple self collision avoidance
+        # End effectors cannot drive into base
+        if target_pos[0] <= 0.76:
+            target_pos[0] = 0.76
+        # End effectors cannot driver too close to each other
+        # Minimum allowed safe distance between end effectors
+        safe_distance = 0.4
+
+        # Check distance to other end effector
+        is_safe = True
+
+        self.log_counter += 1
+
+        for other_side, other_arm in self.arms.items():
+
+            # Skip current arm
+            if other_side == side:
+                continue
+
+            other_pos = other_arm.robot_home_pos
+
+            if self.log_counter % 25 == 0:
+                self.get_logger().info(
+                    f"{arm.side} — "
+                    f"other pos={other_pos.round(3).tolist()}, "
+                )
+
+            # 3D Euclidean distance
+            old_distance = np.linalg.norm(arm.robot_home_pos - other_pos)
+            new_distance = np.linalg.norm(target_pos - other_pos)
+
+            if self.log_counter % 25 == 0:
+                self.get_logger().info(
+                    f"resulting distance ={new_distance.round(3)}, "
+                )
+
+            if new_distance < safe_distance:
+                if new_distance < old_distance:
+                    if self.log_counter % 25 == 0:
+                        self.get_logger().error(
+                            f"Too close, movement not allowed"
+                        )
+                    is_safe = False
+                else:
+                    if self.log_counter % 25 == 0:
+                        self.get_logger().error(
+                            f"Already too close, but moving away from each other allowed"
+                        )
+                    is_safe = True
+
+        # Only apply movement if safe
+        if not is_safe:
+            target_pos = arm.prev_target_pos
+        
+        arm.prev_target_pos = target_pos
+        
 
         # Orientation: delta is in base frame, so apply as delta * home
         target_quat = self._align_teleop_frame_with_flange_frame(teleop_quat)
