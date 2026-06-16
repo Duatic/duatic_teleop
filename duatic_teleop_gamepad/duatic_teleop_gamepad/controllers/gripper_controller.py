@@ -32,8 +32,8 @@ from std_msgs.msg import Float64MultiArray
 class GripperController(BaseController):
     """Handles gripper control."""
 
-    def __init__(self, node, duatic_robots_helper):
-        super().__init__(node, duatic_robots_helper)
+    def __init__(self, node, duatic_robots_helper, controller_helper=None):
+        super().__init__(node, duatic_robots_helper, controller_helper)
 
         self.needed_capabilities = ["manipulation"]
         self.needed_low_level_controllers = ["gripper_controller"]

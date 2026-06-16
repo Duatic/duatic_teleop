@@ -30,8 +30,8 @@ from geometry_msgs.msg import TwistStamped
 class MecanumController(BaseController):
     """Handles mecanum drive mode."""
 
-    def __init__(self, node, duatic_robots_helper):
-        super().__init__(node, duatic_robots_helper)
+    def __init__(self, node, duatic_robots_helper, controller_helper=None):
+        super().__init__(node, duatic_robots_helper, controller_helper)
         self.needed_capabilities = ["mobility"]
         self.node.get_logger().info("Initializing mecanum controller.")
 

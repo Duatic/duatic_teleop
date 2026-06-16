@@ -34,8 +34,8 @@ from duatic_helpers.duatic_pinocchio_helper import DuaticPinocchioHelper
 class CartesianController(BaseController):
     """Handles Cartesian control mode and publishes a visualization marker."""
 
-    def __init__(self, node, duatic_robots_helper):
-        super().__init__(node, duatic_robots_helper)
+    def __init__(self, node, duatic_robots_helper, controller_helper=None):
+        super().__init__(node, duatic_robots_helper, controller_helper)
 
         self.node.get_logger().info("Initializing cartesian controller.")
 
