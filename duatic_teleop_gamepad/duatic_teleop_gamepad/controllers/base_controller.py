@@ -29,7 +29,7 @@ from duatic_helpers.duatic_controller_helper import DuaticControllerHelper
 class BaseController:
     """Base class for all controllers, providing logging and common methods."""
 
-    def __init__(self, node, duatic_robots_helper: DuaticRobotsHelper):
+    def __init__(self, node, duatic_robots_helper: DuaticRobotsHelper, controller_helper=None):
         self.node = node
         self.log_printed = False  # Track whether the log was printed
         self.needed_capabilities = []
@@ -37,7 +37,14 @@ class BaseController:
 
         self.duatic_robots_helper = duatic_robots_helper
         self.duatic_jtc_helper = DuaticJTCHelper(self.node)
-        self.duatic_controller_helper = DuaticControllerHelper(self.node)
+        # Reuse the shared controller helper if provided. Each DuaticControllerHelper
+        # spins up its own 10 Hz polling timer and service clients, so creating one per
+        # controller multiplies executor load for no benefit.
+        self.duatic_controller_helper = (
+            controller_helper
+            if controller_helper is not None
+            else DuaticControllerHelper(self.node)
+        )
         self.focused_component = "arm_left"
 
     def get_low_level_controllers(self):

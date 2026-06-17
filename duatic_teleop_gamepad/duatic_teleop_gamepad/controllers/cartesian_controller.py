@@ -34,8 +34,8 @@ from duatic_helpers.duatic_pinocchio_helper import DuaticPinocchioHelper
 class CartesianController(BaseController):
     """Handles Cartesian control mode and publishes a visualization marker."""
 
-    def __init__(self, node, duatic_robots_helper):
-        super().__init__(node, duatic_robots_helper)
+    def __init__(self, node, duatic_robots_helper, controller_helper=None):
+        super().__init__(node, duatic_robots_helper, controller_helper)
 
         self.node.get_logger().info("Initializing cartesian controller.")
 
@@ -64,12 +64,8 @@ class CartesianController(BaseController):
             self.cartesian_publishers[topic] = self.node.create_publisher(PoseStamped, topic, 10)
             self.node.get_logger().debug(f"Created publisher for topic: {topic}")
 
-        if len(self.arms) >= 2:
-            self.base_frame = "tbase"
-            self.pin_helper = DuaticPinocchioHelper(self.node)  # Product-agnostic
-        else:
-            self.base_frame = "world"
-            self.pin_helper = DuaticPinocchioHelper(self.node)
+        self.base_frame = "tbase" if len(self.arms) >= 2 else "world"
+        self.pin_helper = DuaticPinocchioHelper(self.node)  # Product-agnostic
 
         self.marker_helper = DuaticMarkerHelper(self.node)
 

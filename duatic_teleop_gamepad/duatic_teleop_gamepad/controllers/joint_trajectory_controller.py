@@ -29,8 +29,8 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 class JointTrajectoryController(BaseController):
     """Handles joint trajectory control using the gamepad"""
 
-    def __init__(self, node, duatic_robots_helper):
-        super().__init__(node, duatic_robots_helper)
+    def __init__(self, node, duatic_robots_helper, controller_helper=None):
+        super().__init__(node, duatic_robots_helper, controller_helper)
         self.needed_capabilities = ["manipulation"]
         self.node.get_logger().info("Initializing joint trajectory controller.")
 

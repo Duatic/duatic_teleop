@@ -51,14 +51,18 @@ class ControllerManager:
         # Controllers that should not be deactivated once they are active (to preserve state/odometry)
         self.protected_llcs = ["mecanum_drive_controller"]
 
+        # Share the single controller helper with every controller so we don't spawn one
+        # 10 Hz polling timer + service clients per controller.
+        helper = self.duatic_controller_helper
+
         # Initialize all potential controllers
         self.all_potential_controllers = {
-            0: FreedriveController(self.node, duatic_robots_helper),
-            1: JointTrajectoryController(self.node, duatic_robots_helper),
-            2: MecanumController(self.node, duatic_robots_helper),
+            0: FreedriveController(self.node, duatic_robots_helper, helper),
+            1: JointTrajectoryController(self.node, duatic_robots_helper, helper),
+            2: MecanumController(self.node, duatic_robots_helper, helper),
         }
 
-        self.gripper_controller = GripperController(self.node, duatic_robots_helper)
+        self.gripper_controller = GripperController(self.node, duatic_robots_helper, helper)
 
         # Check which controllers are actually available and create filtered list
         self.all_high_level_controllers = {}
