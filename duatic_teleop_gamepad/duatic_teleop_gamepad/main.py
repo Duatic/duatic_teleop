@@ -52,6 +52,7 @@ class GamepadInterface(Node):
         self.move_command_active = False  # Track if move_home or move_sleep was executed
         self.deadman_active = False  # Track deadman switch state
         self.last_deadman_state = False  # Track previous deadman state for edge detection
+        self.last_freeze_state = False  # Track previous freeze state for edge detection
 
         # Publishers
         self.move_home_pub = self.create_publisher(Bool, "move_home", 10)
@@ -83,21 +84,33 @@ class GamepadInterface(Node):
         self.gamepad_feedback = GamepadFeedback(self)
 
         # Set the timing based on simulation or real hardware
-        self.dt = self.duatic_robots_helper.get_dt()
+        control_dt = self.duatic_robots_helper.get_dt()
+
+        # The joy topic publishes at ~100 Hz, so running the full teleop pipeline faster
+        # than that in Python only burns CPU without improving control. Cap the processing
+        # rate. dt doubles as the integration step in the controllers, so capping it keeps
+        # velocity scaling correct (fewer, larger steps -> same commanded velocity).
+        min_period = 1.0 / self.MAX_TELEOP_RATE
+        self.dt = max(control_dt, min_period)
 
         self.create_timer(self.dt, self.process_joy_input)
-        self.get_logger().info("Gamepad Interface Initialized.")
+        self.get_logger().info(
+            f"Gamepad Interface Initialized (control rate: {1.0 / self.dt:.0f} Hz)."
+        )
 
-    def set_dt(self):
+    # Upper bound for the joystick processing/integration rate (Hz).
+    MAX_TELEOP_RATE = 100.0
 
-        self.is_simulation = self.duatic_robots_helper.check_simulation_mode()
+    def _button(self, msg, name, default=0):
+        """Safely read a mapped button value, returning default if out of range.
 
-        if self.is_simulation:
-            self.dt = 0.05
-            self.get_logger().info("Using simulation timing: dt=0.05s (20Hz)")
-        else:
-            self.dt = 0.001
-            self.get_logger().info("Using real hardware timing: dt=0.001s (1000Hz)")
+        Guards against gamepads that report fewer buttons than the config maps,
+        which would otherwise raise IndexError and kill the teleop callback.
+        """
+        idx = self.button_mapping.get(name)
+        if idx is None or idx >= len(msg.buttons):
+            return default
+        return msg.buttons[idx]
 
     def joy_callback(self, msg: Joy):
         """Store latest joystick message."""
@@ -116,7 +129,7 @@ class GamepadInterface(Node):
         self._update_focus(msg)
 
         # Check deadman switch and track state changes
-        current_deadman_state = msg.buttons[self.button_mapping["dead_man_switch"]] == 1
+        current_deadman_state = self._button(msg, "dead_man_switch") == 1
         deadman_just_released = self.deadman_active and not current_deadman_state
         deadman_just_pressed = not self.deadman_active and current_deadman_state
         self.deadman_active = current_deadman_state
@@ -132,8 +145,8 @@ class GamepadInterface(Node):
                 self._stop_move_commands()
         else:
             # Allowed to move -> Process Home/Sleep commands
-            move_home_pressed = msg.buttons[self.button_mapping["move_home"]]
-            move_sleep_pressed = msg.buttons[self.button_mapping["move_sleep"]]
+            move_home_pressed = self._button(msg, "move_home")
+            move_sleep_pressed = self._button(msg, "move_sleep")
 
             if move_home_pressed:
                 self.move_home_pub.publish(Bool(data=True))
@@ -147,32 +160,48 @@ class GamepadInterface(Node):
             if self.move_command_active:
                 self._stop_move_commands()
 
-        # Use dynamically loaded menu button index
-        switch_controller_index = self.button_mapping["switch_controller"]
         # Ensure switching happens only on button press (down event) and not while held down
-        if msg.buttons[switch_controller_index] == 1 and self.last_menu_button_state == 0:
+        switch_pressed = self._button(msg, "switch_controller")
+        if switch_pressed == 1 and self.last_menu_button_state == 0:
             self.controller_manager.switch_to_next_controller()
             # Reset current controller after switching
             self._reset_current_controller()
 
         # Wait until button is released (0) before allowing another switch
         # And don't execute anything else when the button is pressed
-        self.last_menu_button_state = msg.buttons[switch_controller_index]
+        self.last_menu_button_state = switch_pressed
         if self.last_menu_button_state:
             return
 
-        self.controller_manager.gripper_controller.process_input(msg)
+        freeze_active = self.controller_manager.is_freeze_active
+
+        # The gripper commands motion, so gate it on the E-Stop/freeze as well (it already
+        # checks the deadman internally).
+        if not freeze_active:
+            self.controller_manager.gripper_controller.process_input(msg)
 
         # Now get the current active controller from the controller manager:
         current_controller = self.controller_manager.get_current_controller()
 
         if current_controller is not None:
-            if self.controller_manager.is_freeze_active:
-                # If freeze is active, we don't process any input
-                current_controller.reset()
+            freeze_entered = freeze_active and not self.last_freeze_state
+            freeze_exited = not freeze_active and self.last_freeze_state
+
+            if freeze_active:
+                # Reset once on entering freeze (e.g. mecanum emits a zero command, markers
+                # are cleared); nothing else to do while frozen, so don't reset every tick.
+                if freeze_entered:
+                    current_controller.reset()
             else:
+                # Reset once on leaving freeze so the first command starts from the current
+                # state. This covers the case where the deadman is already held when the
+                # E-Stop clears, leaving no deadman edge to trigger the usual reset.
+                if freeze_exited:
+                    current_controller.reset()
                 # Pass deadman state so controller knows if it can move
                 current_controller.process_input(msg)
+
+        self.last_freeze_state = freeze_active
 
     def _stop_move_commands(self):
         """Stop move_home and move_sleep commands and reset controller."""

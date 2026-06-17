@@ -162,12 +162,15 @@ class MecanumController(BaseController):
             self._send_zero_command()
             return
 
-        # Get joystick axes (normalized -1.0 to 1.0) with validation
+        # Get joystick axes (normalized -1.0 to 1.0) with validation.
+        # Use the shared axis_mapping from config instead of hardcoded indices so a
+        # remapped controller drives the platform correctly.
+        am = self.node.axis_mapping
         try:
-            left_stick_x = self._clamp_value(joy_msg.axes[0])  # Left stick X - strafe left/right
-            left_stick_y = self._clamp_value(joy_msg.axes[1])  # Left stick Y - forward/backward
-            right_stick_x = self._clamp_value(joy_msg.axes[2])  # Right stick X - rotation
-        except (IndexError, TypeError) as e:
+            left_stick_x = self._clamp_value(joy_msg.axes[am["left_joystick"]["x"]])  # strafe l/r
+            left_stick_y = self._clamp_value(joy_msg.axes[am["left_joystick"]["y"]])  # fwd/back
+            right_stick_x = self._clamp_value(joy_msg.axes[am["right_joystick"]["x"]])  # rotation
+        except (IndexError, TypeError, KeyError) as e:
             self.node.get_logger().warn(f"Error reading joystick axes: {e}")
             self._send_zero_command()
             return

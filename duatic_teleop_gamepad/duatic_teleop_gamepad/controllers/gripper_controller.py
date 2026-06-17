@@ -103,9 +103,10 @@ class GripperController(BaseController):
 
         focus = current_hlc.get_focus()
 
-        # Toggle gripper state with button 0
-        if hasattr(joy_msg, "buttons") and len(joy_msg.buttons) > 0:
-            button_pressed = bool(joy_msg.buttons[0])
+        # Toggle gripper state with the configured gripper button
+        gripper_btn = self.node.button_mapping.get("gripper_control", 0)
+        if hasattr(joy_msg, "buttons") and len(joy_msg.buttons) > gripper_btn:
+            button_pressed = bool(joy_msg.buttons[gripper_btn])
             if button_pressed and not self._last_button_state:
                 # Toggle state for focused component
                 is_open = not self._gripper_states.get(focus, False)

@@ -64,12 +64,8 @@ class CartesianController(BaseController):
             self.cartesian_publishers[topic] = self.node.create_publisher(PoseStamped, topic, 10)
             self.node.get_logger().debug(f"Created publisher for topic: {topic}")
 
-        if len(self.arms) >= 2:
-            self.base_frame = "tbase"
-            self.pin_helper = DuaticPinocchioHelper(self.node)  # Product-agnostic
-        else:
-            self.base_frame = "world"
-            self.pin_helper = DuaticPinocchioHelper(self.node)
+        self.base_frame = "tbase" if len(self.arms) >= 2 else "world"
+        self.pin_helper = DuaticPinocchioHelper(self.node)  # Product-agnostic
 
         self.marker_helper = DuaticMarkerHelper(self.node)
 
