@@ -30,7 +30,7 @@ from interactive_markers.interactive_marker_server import InteractiveMarkerServe
 
 from duatic_kinematics.pyroki_solver import PyrokiIKSolver
 from duatic_kinematics.smoothing import smooth_and_limit
-from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
+from duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
 
 from jaxlie import SE3
 
@@ -69,7 +69,7 @@ class InteractivePyrokiNode(Node):
         super().__init__("interactive_pyroki_node")
 
         self.declare_parameter("target_link_name", "flange")
-        self.declare_parameter("use_interactive_markers", False)
+        self.declare_parameter("use_interactive_markers", True)
         self.declare_parameter("solve_mode", "decoupled")
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
         self.declare_parameter("rosbridge", False)
