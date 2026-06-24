@@ -41,7 +41,7 @@ from geometry_msgs.msg import Point
 from tf2_ros import Buffer, TransformListener
 from tf_transformations import quaternion_multiply, quaternion_from_matrix
 
-from duatic_dynaarm_extensions.duatic_helpers.duatic_controller_helper import (
+from duatic_helpers.duatic_controller_helper import (
     DuaticControllerHelper,
 )
 from elephant_s570.fk import S570FK
