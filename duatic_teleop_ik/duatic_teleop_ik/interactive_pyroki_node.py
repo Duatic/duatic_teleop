@@ -30,7 +30,12 @@ from interactive_markers.interactive_marker_server import InteractiveMarkerServe
 
 from duatic_kinematics.pyroki_solver import PyrokiIKSolver
 from duatic_kinematics.smoothing import smooth_and_limit
-from duatic_dynaarm_extensions.duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
+from duatic_helpers.duatic_robots_helper import DuaticRobotsHelper
+
+from jaxlie import SE3
+
+import websocket
+import json
 
 
 @dataclass
@@ -66,10 +71,21 @@ class InteractivePyrokiNode(Node):
         self.declare_parameter("target_link_name", "flange")
         self.declare_parameter("use_interactive_markers", True)
         self.declare_parameter("solve_mode", "decoupled")
+        # In case we want to run the inverse kinematics on a host machine
+        # and then  send the jtc targets via rosbridge to the NUC:
+        self.declare_parameter("uri", "ws://192.168.89.157:9090")
+        self.declare_parameter("rosbridge", False)
 
         self.target_link_name = self.get_parameter("target_link_name").value
         self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
         self.solve_mode = self.get_parameter("solve_mode").value
+        self.rosbridge_uri = self.get_parameter("uri").value
+        self.use_rosbridge = self.get_parameter("rosbridge").value
+
+        if self.use_rosbridge:
+            self.ws = websocket.WebSocket()
+            self.ws.connect(self.rosbridge_uri)
+            self.advertised_topics = set()
 
         if self.solve_mode not in VALID_SOLVE_MODES:
             self.get_logger().warn(
@@ -97,8 +113,8 @@ class InteractivePyrokiNode(Node):
         self.smoothed_q = None  # used by whole_body mode
         self.last_smoothed_q = None  # used by whole_body mode
 
-        self.alpha_filter = 0.15
-        self.max_joint_velocity = 0.5  # rad/s
+        self.alpha_filter = 0.85
+        self.max_joint_velocity = 3.0  # rad/s
 
         self._state_lock = threading.Lock()
         self.fully_initialized = False
@@ -123,6 +139,8 @@ class InteractivePyrokiNode(Node):
         # Start robot detection + control in background thread
         self.control_thread = threading.Thread(target=self._init_and_run, daemon=True)
         self.control_thread.start()
+
+        self.previous_target_pose = None
 
     def _init_and_run(self):
         """Wait for robot detection, then run main control loop."""
@@ -254,17 +272,27 @@ class InteractivePyrokiNode(Node):
                 # Multi-arm: this arm's joints + optionally hip
                 mask = np.zeros(n, dtype=np.float32)
                 indices = []
+                # exclude clamp joints because not controlled via JointTrajectoryController
+                # give error otherwise because mismatch of number joints given and expected
+                excluded_joints = {
+                    "arm_left/clamp_left_finger_joint",
+                    "arm_right/clamp_right_finger_joint",
+                }
+
                 for i, jname in enumerate(self.joint_names):
+
                     is_this_arm = jname.startswith(f"{arm.name}/")
                     is_hip = include_hip and jname.startswith("hip")
-                    if is_this_arm or is_hip:
+                    is_excluded = jname in excluded_joints
+
+                    if (is_this_arm or is_hip) and not is_excluded:
                         mask[i] = 1.0
                         indices.append(i)
                 arm.joint_mask = mask
                 arm.joint_indices = indices
 
             self.get_logger().info(
-                f"Arm '{arm.name or 'arm'}': mask has {int(arm.joint_mask.sum())} active joints, "
+                f"Arm__ '{arm.name or 'arm'}': mask has {int(arm.joint_mask.sum())} active joints, "
                 f"indices={arm.joint_indices}"
             )
 
@@ -308,6 +336,7 @@ class InteractivePyrokiNode(Node):
             if self.current_q is None:
                 return
             actual_q = self.current_q.copy()
+            self.get_logger().info(f"actual_q {actual_q}")
 
         robot = self.solver.robot
 
@@ -317,9 +346,30 @@ class InteractivePyrokiNode(Node):
 
             for arm in self.arm_states:
                 tcp_idx = link_names.index(arm.target_link)
-                tcp_transform = transforms[tcp_idx]
-                arm.target_wxyz = np.array(tcp_transform[:4])
-                arm.target_pos = np.array(tcp_transform[4:])
+                pose = SE3(transforms[tcp_idx])
+                arm.target_wxyz = np.array(pose.rotation().wxyz)
+                arm.target_pos = np.array(pose.translation())
+
+                solution, pos_err, ori_err = self.solver.solve(
+                    arm.target_link,
+                    np.array(pose.translation()),
+                    np.array(pose.rotation().wxyz),
+                    actual_q.copy(),
+                    arm.joint_mask,
+                )
+
+                indices = arm.joint_indices
+
+                if any(6 <= i <= 11 for i in indices):
+                    arm_side = "left"
+                elif any(12 <= i <= 17 for i in indices):
+                    arm_side = "right"
+                else:
+                    arm_side = "unknown"
+
+                # Extract this arm's joints from the solution
+                arm_q = np.array([solution[i] for i in arm.joint_indices])
+                self.get_logger().info(f"{arm_side} initialized targets, arm_q {arm_q}")
 
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
@@ -336,6 +386,7 @@ class InteractivePyrokiNode(Node):
             for a in self.arm_states
         )
         self.get_logger().info(f"Targets synced to actual pose. {arm_info}")
+        self.get_logger().info("Node initialization done, ready!")
 
     def _init_interactive_marker(self, arm: ArmState):
         """Create a 6-DOF interactive marker for one arm."""
@@ -392,6 +443,7 @@ class InteractivePyrokiNode(Node):
         """PoseStamped callback for non-interactive mode."""
         if not self.fully_initialized:
             return
+
         with self._state_lock:
             arm = self.arm_states[arm_index]
             arm.target_pos = np.array(
@@ -435,10 +487,9 @@ class InteractivePyrokiNode(Node):
                     )
                 return
 
-    def _split_and_publish(self, full_q, full_velocities):
+    def _split_and_publish(self, full_q, full_velocities=None):
         """Split full joint solution into per-controller JointTrajectory messages."""
         stamp = self.get_clock().now().to_msg()
-
         for comp_name, publisher in self.traj_publishers.items():
             joint_names, indices = self._pub_joint_map[comp_name]
             if not indices:
@@ -452,27 +503,74 @@ class InteractivePyrokiNode(Node):
             p.positions = [float(full_q[i]) for i in indices]
             p.velocities = [0.0] * len(indices)
             p.time_from_start.sec = 0
-            p.time_from_start.nanosec = 100_000_000
+            p.time_from_start.nanosec = 200_000_000
 
             msg.points.append(p)
             publisher.publish(msg)
 
+            topic = publisher.topic_name
+
+            if self.use_rosbridge:
+                ros_msg = {
+                    "joint_names": joint_names,
+                    "points": [
+                        {
+                            "positions": list(p.positions),
+                            "velocities": list(p.velocities),
+                            "time_from_start": {
+                                "sec": p.time_from_start.sec,
+                                "nanosec": p.time_from_start.nanosec,
+                            },
+                        }
+                    ],
+                }
+
+                advertise_msg = {
+                    "op": "advertise",
+                    "topic": topic,
+                    "type": "trajectory_msgs/JointTrajectory",
+                }
+
+                # 2. Publish
+                publish_msg = {"op": "publish", "topic": topic, "msg": ros_msg}
+
+                # rosbridge doesn't know the type if topic not yet published -> error
+                # => advertise it once
+                try:
+                    if topic not in self.advertised_topics:
+                        self.ws.send(json.dumps(advertise_msg))
+                        self.advertised_topics.add(topic)
+                except Exception as e:
+                    self.get_logger().error(f"Advertising WebSocket send failed: {e}")
+
+                try:
+                    self.ws.send(json.dumps(publish_msg))
+                except Exception as e:
+                    self.get_logger().error(f"WebSocket send failed: {e}")
+
     def main_loop(self):
-        rate_sec = 0.04
+        # 25.0 Hz frequency
+        target_frequency = 25.0
+        rate = self.create_rate(target_frequency)
+
         while rclpy.ok():
             if not self.fully_initialized:
                 time.sleep(0.1)
                 continue
-
             try:
-                if self.solve_mode == "whole_body" and len(self.arm_states) > 1:
-                    self._control_step_whole_body(rate_sec)
+                # Pre-calculate condition to save a micro-evaluation
+                is_whole_body = self.solve_mode == "whole_body" and len(self.arm_states) > 1
+
+                if is_whole_body:
+                    # Pass the expected dt (1.0 / target_frequency) to the step
+                    self._control_step_whole_body(1.0 / target_frequency)
                 else:
-                    self._control_step_decoupled(rate_sec)
+                    self._control_step_decoupled(1.0 / target_frequency)
             except Exception as e:
                 self.get_logger().error(f"Control loop error: {e}")
 
-            time.sleep(rate_sec)
+            # This automatically adjusts sleep time based on computation time!
+            rate.sleep()
 
     def _control_step_decoupled(self, rate_sec):
         """Per-arm control: solve each arm independently, assemble, publish."""
@@ -503,14 +601,8 @@ class InteractivePyrokiNode(Node):
                 arm.target_link, t_pos, t_wxyz, prev_cfg, arm.joint_mask
             )
 
-            self.get_logger().debug(
-                f"[IK {arm.name or 'arm'}] pos_err={pos_err:.4f} ori_err={ori_err:.4f}",
-                throttle_duration_sec=1.0,
-            )
-
             # Extract this arm's joints from the solution
             arm_q = np.array([solution[i] for i in arm.joint_indices])
-
             # Per-arm smoothing + velocity limiting
             arm.smoothed_arm_q = smooth_and_limit(
                 arm_q,
@@ -520,6 +612,7 @@ class InteractivePyrokiNode(Node):
                 self.max_joint_velocity,
                 dt,
             )
+
             arm.last_smoothed_arm_q = arm.smoothed_arm_q.copy()
 
             # Write this arm's joints into the full configuration
@@ -527,15 +620,16 @@ class InteractivePyrokiNode(Node):
                 full_cfg[idx] = arm.smoothed_arm_q[i]
 
         # Compute full-body velocities
-        if self.last_full_q is not None:
-            velocities = (full_cfg - self.last_full_q) / dt
-        else:
-            velocities = np.zeros_like(full_cfg)
+        # comment out, because not used anyways for now
+        # otherwise add it as second argument to _split_and_publish
+        # if self.last_full_q is not None:
+        #     velocities = (full_cfg - self.last_full_q) / dt
+        # else:
+        #     velocities = np.zeros_like(full_cfg)
 
         self.last_full_q = full_cfg.copy()
         self.last_time = current_time
-
-        self._split_and_publish(full_cfg, velocities)
+        self._split_and_publish(full_cfg)
 
     def _control_step_whole_body(self, rate_sec):
         """Whole-body control: solve all arms + hip simultaneously in one optimization."""
