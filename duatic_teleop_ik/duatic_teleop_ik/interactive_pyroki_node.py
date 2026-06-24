@@ -355,7 +355,7 @@ class InteractivePyrokiNode(Node):
                     np.array(pose.translation()),
                     np.array(pose.rotation().wxyz),
                     actual_q.copy(),
-                    arm.joint_mask
+                    arm.joint_mask,
                 )
 
                 indices = arm.joint_indices
@@ -370,7 +370,6 @@ class InteractivePyrokiNode(Node):
                 # Extract this arm's joints from the solution
                 arm_q = np.array([solution[i] for i in arm.joint_indices])
                 self.get_logger().info(f"{arm_side} initialized targets, arm_q {arm_q}")
-
 
         except Exception as e:
             self.get_logger().error(f"FK failed during initialization: {e}")
@@ -387,7 +386,7 @@ class InteractivePyrokiNode(Node):
             for a in self.arm_states
         )
         self.get_logger().info(f"Targets synced to actual pose. {arm_info}")
-        self.get_logger().info(f"Node initialization done, ready!")
+        self.get_logger().info("Node initialization done, ready!")
 
     def _init_interactive_marker(self, arm: ArmState):
         """Create a 6-DOF interactive marker for one arm."""
@@ -520,24 +519,20 @@ class InteractivePyrokiNode(Node):
                             "velocities": list(p.velocities),
                             "time_from_start": {
                                 "sec": p.time_from_start.sec,
-                                "nanosec": p.time_from_start.nanosec
-                            }
+                                "nanosec": p.time_from_start.nanosec,
+                            },
                         }
-                    ]
+                    ],
                 }
 
                 advertise_msg = {
                     "op": "advertise",
                     "topic": topic,
-                    "type": "trajectory_msgs/JointTrajectory"
+                    "type": "trajectory_msgs/JointTrajectory",
                 }
 
                 # 2. Publish
-                publish_msg = {
-                    "op": "publish",
-                    "topic": topic,
-                    "msg": ros_msg
-                }
+                publish_msg = {"op": "publish", "topic": topic, "msg": ros_msg}
 
                 # rosbridge doesn't know the type if topic not yet published -> error
                 # => advertise it once
@@ -555,13 +550,12 @@ class InteractivePyrokiNode(Node):
 
     def main_loop(self):
         # 25.0 Hz frequency
-        target_frequency = 25.0 
+        target_frequency = 25.0
         rate = self.create_rate(target_frequency)
 
         while rclpy.ok():
-            start_time = time.time()
             if not self.fully_initialized:
-                time.sleep(0.1) 
+                time.sleep(0.1)
                 continue
             try:
                 # Pre-calculate condition to save a micro-evaluation
@@ -595,14 +589,13 @@ class InteractivePyrokiNode(Node):
             with self._state_lock:
                 t_pos = arm.target_pos.copy()
                 t_wxyz = arm.target_wxyz.copy()
-            
 
             # Build prev_cfg: actual_q with this arm's smoothed values overlaid
             prev_cfg = actual_q.copy()
             if arm.smoothed_arm_q is not None:
                 for i, idx in enumerate(arm.joint_indices):
                     prev_cfg[idx] = arm.smoothed_arm_q[i]
-            
+
             # Solve IK for this arm only (other joints locked via mask)
             solution, pos_err, ori_err = self.solver.solve(
                 arm.target_link, t_pos, t_wxyz, prev_cfg, arm.joint_mask
@@ -619,7 +612,7 @@ class InteractivePyrokiNode(Node):
                 self.max_joint_velocity,
                 dt,
             )
-            
+
             arm.last_smoothed_arm_q = arm.smoothed_arm_q.copy()
 
             # Write this arm's joints into the full configuration

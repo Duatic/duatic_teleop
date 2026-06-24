@@ -489,4 +489,3 @@ This ensures that the robot cannot accidentally command the arms into each other
 If you notice that the robot is no longer following your teleoperation commands as expected, the collision avoidance system may be active.
 
 In this case, simply move your hands away from each other until the end effectors regain a safe separation distance. Once sufficient clearance has been restored, normal teleoperation will automatically resume.
-

@@ -50,7 +50,6 @@ import websocket
 import json
 
 
-
 def _quat_to_rotation_matrix(q_wxyz: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
     w, x, y, z = q_wxyz
@@ -122,11 +121,10 @@ class ElephantS570Node(Node):
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
         self.declare_parameter("rosbridge", False)
 
-        
         self.use_rosbridge = self.get_parameter("rosbridge").value
         if self.use_rosbridge:
             self.rosbridge_uri = self.get_parameter("uri").value
-            
+
             self.ws = websocket.WebSocket()
             self.ws.connect(self.rosbridge_uri)
             self.advertised_topics = set()
@@ -223,7 +221,7 @@ class ElephantS570Node(Node):
 
         # choose between teleop methods, currently available:
         # 'mapped_actionspaces', 'remapping_deltas'
-        self.teleop_method: str = 'remapping_deltas'
+        self.teleop_method: str = "remapping_deltas"
 
         self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
@@ -232,7 +230,9 @@ class ElephantS570Node(Node):
                 topic = f"/visu/target_pose/{side}"
                 self.visu_pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
         else:
-            self.visu_pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, "/visu/target_pose", 10)
+            self.visu_pose_pubs[self._sides[0]] = self.create_publisher(
+                PoseStamped, "/visu/target_pose", 10
+            )
 
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
@@ -328,9 +328,7 @@ class ElephantS570Node(Node):
 
         # --- Axis lock button right ---
         axis_btn_idx = self._axis_lock_button_index["right"]
-        axis_pressed = (
-            axis_btn_idx < len(msg.buttons) and msg.buttons[axis_btn_idx] == 0
-        )
+        axis_pressed = axis_btn_idx < len(msg.buttons) and msg.buttons[axis_btn_idx] == 0
 
         for side, arm in self.arms.items():
             # Left buttons are defective — use right button A for both arms
@@ -429,11 +427,11 @@ class ElephantS570Node(Node):
             # Only deactivate controllers when ALL arms are released
             if not self._any_arm_active():
                 self._deactivate_controllers()
-    
+
     def _activate_axis_lock(self, arm: S570ArmState) -> None:
 
         arm.home_joints = arm.current_joints.copy()
-        
+
         # Capture current DynaArm EE pose as robot home
         tf_result = self._lookup_robot_ee_pose(arm.side)
         if tf_result is not None:
@@ -476,7 +474,7 @@ class ElephantS570Node(Node):
 
         # Switch controllers on first arm activation
         self._activate_controllers()
-    
+
     def _is_orientation_stable(self, arm, current_quat, threshold=0.9995, steps=5):
         if arm.prev_quat is None:
             arm.prev_quat = current_quat
@@ -492,7 +490,6 @@ class ElephantS570Node(Node):
         arm.prev_quat = current_quat
 
         return arm.stable_counter >= steps
-    
 
     def _publish_axis_marker(self, arm, axis):
         tf_result = self._lookup_robot_ee_pose(arm.side)
@@ -530,7 +527,6 @@ class ElephantS570Node(Node):
 
         self.axis_pub.publish(marker)
 
-
     def _deactivate_axis_lock(self, arm: S570ArmState) -> None:
         arm.axis_lock_active = False
         arm.axis_lock_axis = None
@@ -543,12 +539,8 @@ class ElephantS570Node(Node):
         # Only deactivate controllers when ALL arms are released
         if not self._any_arm_active():
             self._deactivate_controllers()
-    
-    def _project_motion_to_axis(
-        self,
-        delta_pos: np.ndarray,
-        axis: np.ndarray
-    ) -> np.ndarray:
+
+    def _project_motion_to_axis(self, delta_pos: np.ndarray, axis: np.ndarray) -> np.ndarray:
         """Project arbitrary motion onto a given axis."""
         return np.dot(delta_pos, axis) * axis
 
@@ -556,7 +548,9 @@ class ElephantS570Node(Node):
     #  FK-based target computation                                        #
     # ------------------------------------------------------------------ #
 
-    def _compute_target_delta_method(self, arm: S570ArmState, side: str) -> tuple[np.ndarray, np.ndarray] | None:
+    def _compute_target_delta_method(
+        self, arm: S570ArmState, side: str
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute Cartesian target from S570 FK relative displacement.
 
         Returns (position[3], quaternion_wxyz[4]) or None.
@@ -579,12 +573,9 @@ class ElephantS570Node(Node):
         target_pos = arm.robot_home_pos + delta_pos
 
         if self.log_counter % 25 == 0:
-            self.get_logger().info(
-                f"{arm.side} — "
-                f"target pos={target_pos.round(3).tolist()}, "
-            )
+            self.get_logger().info(f"{arm.side} — " f"target pos={target_pos.round(3).tolist()}, ")
 
-        ## Add simple self collision avoidance
+        # Add simple self collision avoidance
         # End effectors cannot drive into base
         if target_pos[0] <= 0.76:
             target_pos[0] = 0.76
@@ -607,8 +598,7 @@ class ElephantS570Node(Node):
 
             if self.log_counter % 25 == 0:
                 self.get_logger().info(
-                    f"{arm.side} — "
-                    f"other pos={other_pos.round(3).tolist()}, "
+                    f"{arm.side} — " f"other pos={other_pos.round(3).tolist()}, "
                 )
 
             # 3D Euclidean distance
@@ -616,30 +606,25 @@ class ElephantS570Node(Node):
             new_distance = np.linalg.norm(target_pos - other_pos)
 
             if self.log_counter % 25 == 0:
-                self.get_logger().info(
-                    f"resulting distance ={new_distance.round(3)}, "
-                )
+                self.get_logger().info(f"resulting distance ={new_distance.round(3)}, ")
 
             if new_distance < safe_distance:
                 if new_distance < old_distance:
                     if self.log_counter % 25 == 0:
-                        self.get_logger().error(
-                            f"Too close, movement not allowed"
-                        )
+                        self.get_logger().error("Too close, movement not allowed")
                     is_safe = False
                 else:
                     if self.log_counter % 25 == 0:
                         self.get_logger().error(
-                            f"Already too close, but moving away from each other allowed"
+                            "Already too close, but moving away from each other allowed"
                         )
                     is_safe = True
 
         # Only apply movement if safe
         if not is_safe:
             target_pos = arm.prev_target_pos
-        
+
         arm.prev_target_pos = target_pos
-        
 
         # Orientation: delta is in base frame, so apply as delta * home
         target_quat = self._align_teleop_frame_with_flange_frame(teleop_quat)
@@ -647,7 +632,9 @@ class ElephantS570Node(Node):
 
         return target_pos, target_quat
 
-    def _compute_target_actionspace_method(self, arm: S570ArmState, side: str) -> tuple[np.ndarray, np.ndarray] | None:
+    def _compute_target_actionspace_method(
+        self, arm: S570ArmState, side: str
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute Cartesian target by mapping teleop action space to robot action space."""
 
         if arm.current_joints is None:
@@ -655,7 +642,6 @@ class ElephantS570Node(Node):
 
         # --- Teleop FK (absolute pose) ---
         teleop_pos, teleop_quat = self.fk.compute(side, arm.current_joints)
-
 
         # --- Teleop limits (LEFT reference space) ---
         t_min = np.array([0.27, 0.0, -0.3])
@@ -667,7 +653,7 @@ class ElephantS570Node(Node):
 
         # --- Mirror Y for right arm ---
         if side == "right":
-            teleop_pos[1] = - teleop_pos[1]
+            teleop_pos[1] = -teleop_pos[1]
 
         # --- Cap teleop input if it exceeds limits ---
         teleop_pos = np.clip(teleop_pos, t_min, t_max)
@@ -680,23 +666,22 @@ class ElephantS570Node(Node):
 
         # --- Mirror Y for right arm ---
         if side == "right":
-            target_pos[1] = - target_pos[1]
+            target_pos[1] = -target_pos[1]
 
         # --- Orientation (align teleop coord frame with flange coord frame) ---
         target_quat = self._align_teleop_frame_with_flange_frame(teleop_quat)
         target_quat /= np.linalg.norm(target_quat)
 
         return target_pos, target_quat
-    
+
     def _align_teleop_frame_with_flange_frame(self, teleop_quat):
         # teleop basis
         x_t = np.array([1, 0, 0])
         y_t = np.array([0, 1, 0])
-        z_t = np.array([0, 0, 1])
 
         # desired robot axes expressed in teleop frame
-        z_r = -x_t            # teleop x → robot z
-        y_r = y_t            # teleop z → robot y
+        z_r = -x_t  # teleop x → robot z
+        y_r = y_t  # teleop z → robot y
         x_r = np.cross(y_r, z_r)  # enforce right-handed system
 
         # build rotation matrix (columns = robot axes in teleop frame)
@@ -712,9 +697,7 @@ class ElephantS570Node(Node):
         return target_quat
 
     def _compute_target_lock_axis(
-        self,
-        arm: S570ArmState,
-        side: str
+        self, arm: S570ArmState, side: str
     ) -> tuple[np.ndarray, np.ndarray] | None:
         """Move only along locked EE axis (z-axis of flange), orientation fixed."""
 
@@ -735,7 +718,7 @@ class ElephantS570Node(Node):
         delta_pos = current_pos - home_pos
 
         # --- Optional: nur X-Achse vom Teleop verwenden ---
-        # (vor/zurück Bewegung isolieren)
+        # (for/zurück Bewegung isolieren)
         delta_x = delta_pos[0]
 
         axis = arm.axis_lock_axis
@@ -760,7 +743,7 @@ class ElephantS570Node(Node):
 
         # Always publish S570 FK end-effector markers (for debugging in S570 RViz)
         self._publish_s570_fk_markers(stamp)
-            
+
         for side, arm in self.arms.items():
             if side not in self.pose_pubs:
                 continue
@@ -769,9 +752,9 @@ class ElephantS570Node(Node):
             if arm.axis_lock_active:
                 result = self._compute_target_lock_axis(arm, side)
             else:
-                if self.teleop_method == 'remapping_deltas':
+                if self.teleop_method == "remapping_deltas":
                     result = self._compute_target_delta_method(arm, side)
-                elif self.teleop_method == 'mapped_actionspaces':
+                elif self.teleop_method == "mapped_actionspaces":
                     result = self._compute_target_actionspace_method(arm, side)
                 else:
                     result = self._compute_target_actionspace_method(arm, side)
@@ -800,40 +783,29 @@ class ElephantS570Node(Node):
             if self.use_rosbridge:
                 ros_msg = {
                     "header": {
-                        "stamp": {
-                            "sec": int(stamp.sec),
-                            "nanosec": int(stamp.nanosec)
-                        },
-                        "frame_id": "base_link"
+                        "stamp": {"sec": int(stamp.sec), "nanosec": int(stamp.nanosec)},
+                        "frame_id": "base_link",
                     },
                     "pose": {
-                        "position": {
-                            "x": float(pos[0]),
-                            "y": float(pos[1]),
-                            "z": float(pos[2])
-                        },
+                        "position": {"x": float(pos[0]), "y": float(pos[1]), "z": float(pos[2])},
                         "orientation": {
                             "w": float(quat[0]),
                             "x": float(quat[1]),
                             "y": float(quat[2]),
-                            "z": float(quat[3])
-                        }
-                    }
+                            "z": float(quat[3]),
+                        },
+                    },
                 }
 
                 # 1. Advertise
                 advertise_msg = {
                     "op": "advertise",
                     "topic": topic,
-                    "type": "geometry_msgs/PoseStamped"
+                    "type": "geometry_msgs/PoseStamped",
                 }
 
                 # 2. Publish
-                publish_msg = {
-                    "op": "publish",
-                    "topic": topic,
-                    "msg": ros_msg
-                }
+                publish_msg = {"op": "publish", "topic": topic, "msg": ros_msg}
 
                 try:
                     if topic not in self.advertised_topics:
@@ -852,9 +824,7 @@ class ElephantS570Node(Node):
 
             self.pose_pubs[side].publish(msg)
 
-            self._publish_pose_markers(
-                self._target_marker_pub, msg, "base_link", f"target_{side}_"
-            )
+            self._publish_pose_markers(self._target_marker_pub, msg, "base_link", f"target_{side}_")
 
     def _publish_urdf_joints(self, stamp) -> None:
         """Republish current joint angles with URDF joint names for visualization."""

@@ -51,7 +51,7 @@ class S570Publisher(Node):
         self.get_logger().info(f"Connecting to S570 on {port}")
         self.robot = Exoskeleton(port)
 
-        self.get_logger().info(f"Starting to publish buttons and joint_states")
+        self.get_logger().info("Starting to publish buttons and joint_states")
         self.timer = self.create_timer(1.0 / 50.0, self.loop)
 
     def loop(self):
@@ -80,10 +80,9 @@ class S570Publisher(Node):
         joy_msg.header.stamp = now
         joy_msg.header.frame_id = "s570"
 
-        joy_msg.buttons = (
-            [int(left_data[i]) for i in range(7, 11)] +
-            [int(right_data[i]) for i in range(7, 11)]
-        )
+        joy_msg.buttons = [int(left_data[i]) for i in range(7, 11)] + [
+            int(right_data[i]) for i in range(7, 11)
+        ]
 
         joy_msg.axes = [
             (left_data[11] - 128.0) / 128.0,
