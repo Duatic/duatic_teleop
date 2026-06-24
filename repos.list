@@ -7,10 +7,6 @@ repositories:
     type: git
     url: https://github.com/Duatic/duatic_helpers.git
     version: main
-  duatic_dynaarm:
-    type: git
-    url: https://github.com/Duatic/duatic_dynaarm.git
-    version: main
   duatic_control:
     type: git
     url: https://github.com/Duatic/duatic_control.git
