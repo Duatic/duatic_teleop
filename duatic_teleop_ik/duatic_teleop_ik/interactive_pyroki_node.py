@@ -358,6 +358,15 @@ class InteractivePyrokiNode(Node):
                     arm.joint_mask
                 )
 
+                indices = arm.joint_indices
+
+                if any(6 <= i <= 11 for i in indices):
+                    arm_side = "left"
+                elif any(12 <= i <= 17 for i in indices):
+                    arm_side = "right"
+                else:
+                    arm_side = "unknown"
+
                 # Extract this arm's joints from the solution
                 arm_q = np.array([solution[i] for i in arm.joint_indices])
                 self.get_logger().info(f"{arm_side} initialized targets, arm_q {arm_q}")
@@ -378,6 +387,7 @@ class InteractivePyrokiNode(Node):
             for a in self.arm_states
         )
         self.get_logger().info(f"Targets synced to actual pose. {arm_info}")
+        self.get_logger().info(f"Node initialization done, ready!")
 
     def _init_interactive_marker(self, arm: ArmState):
         """Create a 6-DOF interactive marker for one arm."""
