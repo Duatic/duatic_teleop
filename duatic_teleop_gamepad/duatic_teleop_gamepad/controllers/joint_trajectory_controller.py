@@ -29,10 +29,19 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 class JointTrajectoryController(BaseController):
     """Handles joint trajectory control using the gamepad"""
 
+    # Joint velocity (rad/s) commanded at full stick deflection. This is the teleop
+    # speed knob: the stick value (-1..1) is scaled by this to get the target velocity.
+    MAX_JOINT_VELOCITY = 1.0
+
     # Slew-rate limit on the commanded joint velocity (rad/s^2). Bounds how fast the
     # commanded velocity may change, giving smooth start/stop without differentiating
     # the noisy joystick signal.
     MAX_JOINT_ACCEL = 5.0
+
+    # How far ahead (in publish cycles) each streamed trajectory point is placed. >= 2
+    # keeps a valid future target so the 1 kHz controller never runs out of trajectory
+    # between our updates, even if one command is late or dropped.
+    TRAJECTORY_LOOKAHEAD_CYCLES = 2.0
 
     def __init__(self, node, duatic_robots_helper, controller_helper=None):
         super().__init__(node, duatic_robots_helper, controller_helper)
@@ -77,6 +86,12 @@ class JointTrajectoryController(BaseController):
         self.prefix_to_joints = {}
         self.is_joystick_idle = True
 
+        # Live-tunable on hardware via `ros2 param set /gamepad_interface <name> <value>`.
+        # Defaults come from the class constants above.
+        self.node.declare_parameter("jtc_max_joint_velocity", self.MAX_JOINT_VELOCITY)
+        self.node.declare_parameter("jtc_max_joint_accel", self.MAX_JOINT_ACCEL)
+        self.node.declare_parameter("jtc_lookahead_cycles", self.TRAJECTORY_LOOKAHEAD_CYCLES)
+
         # Dominant axis tracking
         self.dominant_axis_threshold = 0.6
         self.active_axes = {
@@ -117,6 +132,8 @@ class JointTrajectoryController(BaseController):
 
         any_axis_active = False
         deadzone = 0.1
+        max_velocity = self.node.get_parameter("jtc_max_joint_velocity").value
+        max_accel = self.node.get_parameter("jtc_max_joint_accel").value
 
         # Determine which axes are currently dominant
         left_x = (
@@ -205,11 +222,14 @@ class JointTrajectoryController(BaseController):
                         elif move_right:
                             axis_val = 1.0
 
-                # Target joint velocity from the stick (rad/s), gated by the deadzone.
-                target_velocity = axis_val if abs(axis_val) > effective_deadzone else 0.0
+                # Target joint velocity (rad/s): the stick value gated by the deadzone and
+                # scaled by the configurable max joint velocity (speed at full deflection).
+                target_velocity = (
+                    axis_val * max_velocity if abs(axis_val) > effective_deadzone else 0.0
+                )
 
                 # Slew-rate limit the velocity toward the target (bounded acceleration).
-                max_dv = self.MAX_JOINT_ACCEL * self.node.dt
+                max_dv = max_accel * self.node.dt
                 dv = target_velocity - commanded_velocities[i]
                 dv = max(-max_dv, min(max_dv, dv))
                 commanded_velocities[i] += dv
@@ -267,14 +287,20 @@ class JointTrajectoryController(BaseController):
         trajectory_msg = JointTrajectory()
         trajectory_msg.joint_names = joint_names
         point = JointTrajectoryPoint()
-        point.positions = target_positions
-        # Hand the controller the actual commanded velocity so it interpolates with a
-        # continuous velocity instead of decelerating to zero at every segment end.
+
+        # Stream a constant-velocity lookahead point: place it `lookahead` seconds ahead
+        # at the current commanded velocity, with time_from_start = lookahead. Position,
+        # velocity and time stay mutually consistent (distance = velocity * lookahead), so
+        # the 1 kHz controller interpolates a smooth constant-velocity ramp between our
+        # updates instead of accelerating and braking within every cycle. The 2-cycle
+        # horizon also bridges a single late or dropped command.
+        lookahead = self.node.get_parameter("jtc_lookahead_cycles").value * self.node.dt
+        point.positions = [
+            pos + vel * lookahead for pos, vel in zip(target_positions, target_velocities)
+        ]
         point.velocities = list(target_velocities)
         point.accelerations = [0.0] * len(joint_names)
-        # Aim each point one extra cycle into the future so a late or dropped command
-        # does not open a gap, which the controller would render as a brief stop.
-        time_in_sec = 2.0 * self.node.dt
+        time_in_sec = lookahead
         sec = int(time_in_sec)
         nanosec = int((time_in_sec - sec) * 1e9)
         point.time_from_start.sec = sec
