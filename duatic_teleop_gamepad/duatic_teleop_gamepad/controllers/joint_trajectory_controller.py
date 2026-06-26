@@ -29,6 +29,11 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 class JointTrajectoryController(BaseController):
     """Handles joint trajectory control using the gamepad"""
 
+    # Slew-rate limit on the commanded joint velocity (rad/s^2). Bounds how fast the
+    # commanded velocity may change, giving smooth start/stop without differentiating
+    # the noisy joystick signal.
+    MAX_JOINT_ACCEL = 5.0
+
     def __init__(self, node, duatic_robots_helper, controller_helper=None):
         super().__init__(node, duatic_robots_helper, controller_helper)
         self.needed_capabilities = ["manipulation"]
@@ -47,6 +52,13 @@ class JointTrajectoryController(BaseController):
         self.topic_to_commanded_positions = response[1]
         for topic, joint_names in self.topic_to_joint_names.items():
             self.topic_to_commanded_positions[topic] = [0.0] * len(joint_names)
+
+        # Commanded joint velocities (rad/s), slew-limited and published alongside the
+        # positions so the downstream controller interpolates with continuous velocity.
+        self.topic_to_commanded_velocities = {
+            topic: [0.0] * len(joint_names)
+            for topic, joint_names in self.topic_to_joint_names.items()
+        }
 
         # Focus management
         self.focused_component = (
@@ -97,6 +109,7 @@ class JointTrajectoryController(BaseController):
             self.topic_to_commanded_positions[topic] = [
                 joint_states.get(joint, 0.0) for joint in joint_names
             ]
+            self.topic_to_commanded_velocities[topic] = [0.0] * len(joint_names)
 
     def process_input(self, msg):
         """Processes joystick input, integrates over dt, and clamps the commanded positions."""
@@ -141,6 +154,7 @@ class JointTrajectoryController(BaseController):
                 continue
 
             commanded_positions = self.topic_to_commanded_positions[topic]
+            commanded_velocities = self.topic_to_commanded_velocities[topic]
             for i, joint_name in enumerate(joint_names):
                 axis_val = 0.0
                 effective_deadzone = deadzone
@@ -191,11 +205,23 @@ class JointTrajectoryController(BaseController):
                         elif move_right:
                             axis_val = 1.0
 
-                if abs(axis_val) > effective_deadzone:
+                # Target joint velocity from the stick (rad/s), gated by the deadzone.
+                target_velocity = axis_val if abs(axis_val) > effective_deadzone else 0.0
+
+                # Slew-rate limit the velocity toward the target (bounded acceleration).
+                max_dv = self.MAX_JOINT_ACCEL * self.node.dt
+                dv = target_velocity - commanded_velocities[i]
+                dv = max(-max_dv, min(max_dv, dv))
+                commanded_velocities[i] += dv
+
+                # Integrate the position with the limited velocity so the published
+                # position and velocity stay consistent. Keep going while the velocity
+                # is still ramping down so the stop stays smooth.
+                if commanded_velocities[i] != 0.0:
                     current_position = self.duatic_robots_helper.get_joint_value_from_states(
                         joint_name
                     )
-                    commanded_positions[i] += axis_val * self.node.dt
+                    commanded_positions[i] += commanded_velocities[i] * self.node.dt
                     offset = commanded_positions[i] - current_position
                     if abs(offset) > self.joint_pos_offset_tolerance:
                         commanded_positions[i] = current_position + math.copysign(
@@ -205,6 +231,7 @@ class JointTrajectoryController(BaseController):
                     any_axis_active = True
 
             self.topic_to_commanded_positions[topic] = commanded_positions
+            self.topic_to_commanded_velocities[topic] = commanded_velocities
 
         # Publish if active or if this is the first idle frame (to send the final state)
         if any_axis_active or not self.is_joystick_idle:
@@ -213,6 +240,7 @@ class JointTrajectoryController(BaseController):
                 if arm_name == self.focused_component:
                     self.publish_joint_trajectory(
                         self.topic_to_commanded_positions[topic],
+                        self.topic_to_commanded_velocities[topic],
                         publisher,
                         self.topic_to_joint_names[topic],
                     )
@@ -221,7 +249,7 @@ class JointTrajectoryController(BaseController):
             self.is_joystick_idle = not any_axis_active
 
     def publish_joint_trajectory(
-        self, target_positions, publisher, joint_names, speed_percentage=1.0
+        self, target_positions, target_velocities, publisher, joint_names, speed_percentage=1.0
     ):
         """Publishes a joint trajectory message for the given positions using the provided publisher."""
 
@@ -240,9 +268,13 @@ class JointTrajectoryController(BaseController):
         trajectory_msg.joint_names = joint_names
         point = JointTrajectoryPoint()
         point.positions = target_positions
-        point.velocities = [0.0] * len(joint_names)
+        # Hand the controller the actual commanded velocity so it interpolates with a
+        # continuous velocity instead of decelerating to zero at every segment end.
+        point.velocities = list(target_velocities)
         point.accelerations = [0.0] * len(joint_names)
-        time_in_sec = self.node.dt
+        # Aim each point one extra cycle into the future so a late or dropped command
+        # does not open a gap, which the controller would render as a brief stop.
+        time_in_sec = 2.0 * self.node.dt
         sec = int(time_in_sec)
         nanosec = int((time_in_sec - sec) * 1e9)
         point.time_from_start.sec = sec
