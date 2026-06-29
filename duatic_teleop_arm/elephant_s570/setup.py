@@ -33,7 +33,7 @@ setup(
     maintainer_email="dev@duatic.com",
     description="Teleoperation interface for the Elephant Robotics myController S570.",
     license="BSD-3-Clause",
-    tests_require=["pytest"],
+    extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
             "elephant_s570_node = elephant_s570.node:main",
