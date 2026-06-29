@@ -83,23 +83,19 @@ class GamepadInterface(Node):
 
         self.gamepad_feedback = GamepadFeedback(self)
 
-        # Set the timing based on simulation or real hardware
-        control_dt = self.duatic_robots_helper.get_dt()
-
-        # The joy topic publishes at ~100 Hz, so running the full teleop pipeline faster
-        # than that in Python only burns CPU without improving control. Cap the processing
-        # rate. dt doubles as the integration step in the controllers, so capping it keeps
-        # velocity scaling correct (fewer, larger steps -> same commanded velocity).
-        min_period = 1.0 / self.MAX_TELEOP_RATE
-        self.dt = max(control_dt, min_period)
+        # Joy input is processed at a fixed 100 Hz — the /joy topic rate. Controllers
+        # that need higher-rate output (e.g. JTC) run a separate tick() at dt_fast.
+        self.dt = 1.0 / 100.0
+        # dt_fast drives the JTC publish timer. Must match the hardware control loop
+        # so the JTC receives one new target per controller cycle and never brakes.
+        self.dt_fast = self.duatic_robots_helper.get_dt()
 
         self.create_timer(self.dt, self.process_joy_input)
+        self.create_timer(self.dt_fast, self._tick_jtc)
         self.get_logger().info(
-            f"Gamepad Interface Initialized (control rate: {1.0 / self.dt:.0f} Hz)."
+            f"Gamepad Interface Initialized "
+            f"(joy: {1.0 / self.dt:.0f} Hz, JTC: {1.0 / self.dt_fast:.0f} Hz)."
         )
-
-    # Upper bound for the joystick processing/integration rate (Hz).
-    MAX_TELEOP_RATE = 100.0
 
     def _button(self, msg, name, default=0):
         """Safely read a mapped button value, returning default if out of range.
@@ -202,6 +198,14 @@ class GamepadInterface(Node):
                 current_controller.process_input(msg)
 
         self.last_freeze_state = freeze_active
+
+    def _tick_jtc(self):
+        """High-rate tick for controllers that need ~1 kHz JTC publishing."""
+        if self.controller_manager.is_freeze_active:
+            return
+        current_controller = self.controller_manager.get_current_controller()
+        if current_controller is not None and hasattr(current_controller, "tick"):
+            current_controller.tick()
 
     def _stop_move_commands(self):
         """Stop move_home and move_sleep commands and reset controller."""
