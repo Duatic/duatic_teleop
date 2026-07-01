@@ -7,21 +7,9 @@ repositories:
     type: git
     url: https://github.com/Duatic/duatic_helpers.git
     version: main
-  duatic_gazebo:
-    type: git
-    url: https://github.com/Duatic/duatic_gazebo.git
-    version: main
-  duatic_dynaarm:
-    type: git
-    url: https://github.com/Duatic/duatic_dynaarm.git
-    version: main
   duatic_control:
     type: git
     url: https://github.com/Duatic/duatic_control.git
-    version: main
-  duatic_ros2control:
-    type: git
-    url: https://github.com/Duatic/duatic_ros2control.git
     version: main
   ethercat_sdk_master:
     type: git

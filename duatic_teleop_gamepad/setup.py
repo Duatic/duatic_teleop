@@ -18,6 +18,7 @@ setup(
     maintainer_email="tschwarzer@duatic.com",
     description="Gamepad-based teleoperation interface for Duatic robots.",
     license="BSD-3-Clause",
+    extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": ["gamepad_interface = duatic_teleop_gamepad.main:main"],
     },
