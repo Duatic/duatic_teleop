@@ -1,0 +1,61 @@
+# AXES
+# 0 = Left Stick X
+# 1 = Left Stick Y
+# 2 = Right Stick X
+# 3 = Right Stick Y
+# 4 = Left Trigger
+# 5 = Right Trigger
+
+# BUTTONS
+# 0   = Face Bottom
+# 1   = Face Right
+# 2   = Face Left
+# 3   = Face Top
+# 4   = Back Button
+# 5   = PS5
+# 6   = Menu Button
+# 7   = Left Stick Button
+# 8   = Right Stick Button
+# 9   = Left Shoulder
+# 10  = Right Shoulder
+# 11  = DPad up
+# 12  = DPad down
+# 13  = DPad left
+# 14  = DPad right
+
+gamepad_node:
+  ros__parameters:
+    button_mapping:
+      move_home: 3
+      move_sleep: 1
+      dead_man_switch: 10
+      wrist_rotation_left: 7
+      wrist_rotation_right: 8
+      switch_controller: 6  # Menu button for switching controllers
+      gripper_control: 0
+    axis_mapping:
+      left_joystick:
+        x: 0
+        y: 1
+      right_joystick:
+        x: 2
+        y: 3
+      triggers:
+        left: 4
+        right: 5
+    dpad_mapping:
+      # Some controllers (e.g. Xbox) report D-Pad as axes (Hat Switch)
+      axes:
+        x: 6
+        y: 7
+      # Some controllers (e.g. PS4/PS5) report D-Pad as individual buttons
+      buttons:
+        up: 11
+        down: 12
+        left: 13
+        right: 14
+      focus_targets:
+        up: "hip"
+        down: "platform"
+        left: "arm_right"
+        right: "arm_left"

@@ -15,9 +15,9 @@ repositories:
     type: git
     url: https://github.com/Duatic/ethercat_sdk_master.git
     version: master
-  message_logger:
+  duatic_message_logger:
     type: git
-    url: https://github.com/Duatic/message_logger.git
+    url: https://github.com/Duatic/duatic_message_logger.git
     version: main
   rsl_drive_sdk:
     type: git
