@@ -4,6 +4,11 @@ name: Reusable industrial_ci workflow
 on:
   workflow_call:
     inputs:
+      timeout_minutes:
+        description: 'Maximum time the job is allowed to run.'
+        default: 30
+        required: false
+        type: number
       ref_for_scheduled_build:
         description: 'Reference on which the repo should be checkout for scheduled build. Usually is this name of a branch or a tag.'
         default: ''
@@ -37,26 +42,10 @@ on:
         required: true
 
 jobs:
-  # This job "probes" the self-hosted runner.
-  # If the runner is offline, this job will hang until it hits the timeout.
-  check_runner:
-    runs-on: self-hosted
-    outputs:
-      available: ${{ steps.set_status.outputs.status }}
-    timeout-minutes: 1 # Short timeout: if it can't pick up the job in 60s, it's "offline"
-    steps:
-      - id: set_status
-        run: echo "status=true" >> $GITHUB_OUTPUT
-
   reusable_ici:
-    # This job starts regardless of whether check_runner succeeded or timed out
-    if: always()
-    timeout-minutes: 180
-    needs: check_runner
     name: ${{ inputs.ros_distro }} ${{ inputs.ros_repo }}
-
-    # Logic: If check_runner succeeded, use self-hosted. Otherwise, use ubuntu-latest.
-    runs-on: ${{ (needs.check_runner.result == 'success') && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: self-hosted
+    timeout-minutes: ${{ inputs.timeout_minutes }}
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/${{ inputs.ccache_dir }}

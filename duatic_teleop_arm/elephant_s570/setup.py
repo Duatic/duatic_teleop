@@ -33,10 +33,12 @@ setup(
     maintainer_email="dev@duatic.com",
     description="Teleoperation interface for the Elephant Robotics myController S570.",
     license="BSD-3-Clause",
-    tests_require=["pytest"],
+    extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
             "elephant_s570_node = elephant_s570.node:main",
+            "s570_hardware_node = elephant_s570.s570_hardware_node:main",
+            "publish_teleop_to_rosbridge_node = elephant_s570.publish_teleop_to_rosbridge_node:main",
         ],
     },
 )
