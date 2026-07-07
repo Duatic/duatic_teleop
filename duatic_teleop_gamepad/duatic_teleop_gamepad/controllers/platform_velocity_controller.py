@@ -51,7 +51,7 @@ class PlatformVelocityController(BaseController):
             return self.node.declare_parameter(name, default).value
 
         # Get control parameters from ROS parameters
-        self.max_vel = _param("max_vel", 0.6)        # m/s
+        self.max_vel = _param("max_vel", 0.6)  # m/s
         self.accel_limit = _param("accel_limit", 0.5)  # m/s²
         self.decel_limit = _param("decel_limit", 1.0)  # m/s²
         self.deadzone = _param("deadzone", 0.05)

@@ -32,7 +32,9 @@ from duatic_teleop_gamepad.controllers.joint_trajectory_controller import (
 from duatic_teleop_gamepad.controllers.freedrive_controller import FreedriveController
 from duatic_teleop_gamepad.controllers.mecanum_controller import MecanumController
 from duatic_teleop_gamepad.controllers.gripper_controller import GripperController
-from duatic_teleop_gamepad.controllers.platform_velocity_controller import PlatformVelocityController
+from duatic_teleop_gamepad.controllers.platform_velocity_controller import (
+    PlatformVelocityController,
+)
 
 
 class ControllerManager:
