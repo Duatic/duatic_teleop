@@ -36,10 +36,11 @@ class PlatformVelocityController(BaseController):
         self.node.get_logger().info("Initializing platform velocity controller.")
 
         self.base_needed_llcs = ["platform_velocity_controller"]
-        self.potential_freeze_llcs = [
-            "freeze_controller_hip",
-            "freeze_controller_arm_left",
-            "freeze_controller_arm_right",
+        self.potential_jtc_llcs = [
+            "joint_trajectory_controller",
+            "joint_trajectory_controller_hip",
+            "joint_trajectory_controller_arm_left",
+            "joint_trajectory_controller_arm_right",
         ]
 
         # Create publisher for platform drive
@@ -73,10 +74,10 @@ class PlatformVelocityController(BaseController):
         """Returns the names of low-level controllers needed for platform velocity mode."""
         needed = list(self.base_needed_llcs)
 
-        available_freezes = self.duatic_controller_helper.get_all_controllers(
-            self.potential_freeze_llcs
+        available_jtcs = self.duatic_controller_helper.get_all_controllers(
+            self.potential_jtc_llcs
         )
-        needed.extend(available_freezes)
+        needed.extend(available_jtcs)
 
         return needed
 
