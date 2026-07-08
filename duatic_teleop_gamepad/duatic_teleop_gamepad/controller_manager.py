@@ -30,10 +30,9 @@ from duatic_teleop_gamepad.controllers.joint_trajectory_controller import (
     JointTrajectoryController,
 )
 from duatic_teleop_gamepad.controllers.freedrive_controller import FreedriveController
-from duatic_teleop_gamepad.controllers.mecanum_controller import MecanumController
 from duatic_teleop_gamepad.controllers.gripper_controller import GripperController
-from duatic_teleop_gamepad.controllers.platform_velocity_controller import (
-    PlatformVelocityController,
+from duatic_teleop_gamepad.controllers.platform_drive_controller import (
+    PlatformDriveController,
 )
 
 
@@ -62,8 +61,7 @@ class ControllerManager:
         self.all_potential_controllers = {
             0: FreedriveController(self.node, duatic_robots_helper, helper),
             1: JointTrajectoryController(self.node, duatic_robots_helper, helper),
-            2: MecanumController(self.node, duatic_robots_helper, helper),
-            3: PlatformVelocityController(self.node, duatic_robots_helper, helper),
+            2: PlatformDriveController(self.node, duatic_robots_helper, helper),
         }
 
         self.gripper_controller = GripperController(self.node, duatic_robots_helper, helper)

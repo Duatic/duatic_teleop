@@ -27,15 +27,18 @@ from duatic_teleop_gamepad.controllers.base_controller import BaseController
 from geometry_msgs.msg import TwistStamped
 
 
-class PlatformVelocityController(BaseController):
-    """Handles platform velocity controller drive mode."""
+class PlatformDriveController(BaseController):
+    """Handles platform drive mode, regardless of which base drive controller the robot uses."""
 
     def __init__(self, node, duatic_robots_helper, controller_helper=None):
         super().__init__(node, duatic_robots_helper, controller_helper)
         self.needed_capabilities = ["mobility"]
-        self.node.get_logger().info("Initializing platform velocity controller.")
+        self.node.get_logger().info("Initializing platform drive controller.")
 
-        self.base_needed_llcs = ["platform_velocity_controller"]
+        # Different robots name their base drive controller differently
+        # (mecanum_drive_controller vs platform_velocity_controller). Search for
+        # whichever one is actually present instead of hardcoding a single name.
+        self.potential_base_llcs = ["platform_velocity_controller", "mecanum_drive_controller"]
         self.potential_jtc_llcs = [
             "joint_trajectory_controller",
             "joint_trajectory_controller_hip",
@@ -46,16 +49,11 @@ class PlatformVelocityController(BaseController):
         # Create publisher for platform drive
         self.twist_publisher = self.node.create_publisher(TwistStamped, "cmd_vel_smoothed", 10)
 
-        def _param(name, default):
-            if self.node.has_parameter(name):
-                return self.node.get_parameter(name).value
-            return self.node.declare_parameter(name, default).value
-
         # Get control parameters from ROS parameters
-        self.max_vel = _param("max_vel", 0.6)  # m/s
-        self.accel_limit = _param("accel_limit", 0.5)  # m/s²
-        self.decel_limit = _param("decel_limit", 1.0)  # m/s²
-        self.deadzone = _param("deadzone", 0.05)
+        self.max_vel = self.node.declare_parameter("max_vel", 0.6).value  # m/s
+        self.accel_limit = self.node.declare_parameter("accel_limit", 0.5).value  # m/s²
+        self.decel_limit = self.node.declare_parameter("decel_limit", 1.0).value  # m/s²
+        self.deadzone = self.node.declare_parameter("deadzone", 0.05).value
 
         # Current velocity state for acceleration limiting
         self.current_linear_x = 0.0
@@ -68,11 +66,11 @@ class PlatformVelocityController(BaseController):
         # Controller state
         self.is_initialized = False
 
-        self.node.get_logger().info("Platform velocity controller initialized")
+        self.node.get_logger().info("Platform drive controller initialized")
 
     def get_low_level_controllers(self):
-        """Returns the names of low-level controllers needed for platform velocity mode."""
-        needed = list(self.base_needed_llcs)
+        """Returns the names of low-level controllers needed for platform drive mode."""
+        needed = self.duatic_controller_helper.get_all_controllers(self.potential_base_llcs)
 
         available_jtcs = self.duatic_controller_helper.get_all_controllers(
             self.potential_jtc_llcs
@@ -138,19 +136,16 @@ class PlatformVelocityController(BaseController):
         if dt <= 0.001 or dt > 0.1:
             dt = 0.02
 
-        if not joy_msg:
+        if not joy_msg or not hasattr(joy_msg, "axes"):
             self._send_zero_command()
             return
 
-        if not hasattr(joy_msg, "axes") or len(joy_msg.axes) < 3:
-            self._send_zero_command()
-            return
-
+        am = self.node.axis_mapping
         try:
-            left_stick_x = self._clamp_value(joy_msg.axes[0])
-            left_stick_y = self._clamp_value(joy_msg.axes[1])
-            right_stick_x = self._clamp_value(joy_msg.axes[2])
-        except (IndexError, TypeError):
+            left_stick_x = self._clamp_value(joy_msg.axes[am["left_joystick"]["x"]])  # strafe l/r
+            left_stick_y = self._clamp_value(joy_msg.axes[am["left_joystick"]["y"]])  # fwd/back
+            right_stick_x = self._clamp_value(joy_msg.axes[am["right_joystick"]["x"]])  # rotation
+        except (IndexError, TypeError, KeyError):
             self._send_zero_command()
             return
 
