@@ -28,7 +28,7 @@ from geometry_msgs.msg import TwistStamped
 
 
 class PlatformDriveController(BaseController):
-    """Handles platform drive mode, regardless of which base drive controller the robot uses."""
+    """Handles platform drive mode."""
 
     def __init__(self, node, duatic_robots_helper, controller_helper=None):
         super().__init__(node, duatic_robots_helper, controller_helper)
@@ -36,8 +36,6 @@ class PlatformDriveController(BaseController):
         self.node.get_logger().info("Initializing platform drive controller.")
 
         # Different robots name their base drive controller differently
-        # (mecanum_drive_controller vs platform_velocity_controller). Search for
-        # whichever one is actually present instead of hardcoding a single name.
         self.potential_base_llcs = ["platform_velocity_controller", "mecanum_drive_controller"]
         self.potential_jtc_llcs = [
             "joint_trajectory_controller",
@@ -143,7 +141,8 @@ class PlatformDriveController(BaseController):
             left_stick_x = self._clamp_value(joy_msg.axes[am["left_joystick"]["x"]])  # strafe l/r
             left_stick_y = self._clamp_value(joy_msg.axes[am["left_joystick"]["y"]])  # fwd/back
             right_stick_x = self._clamp_value(joy_msg.axes[am["right_joystick"]["x"]])  # rotation
-        except (IndexError, TypeError, KeyError):
+        except (IndexError, TypeError, KeyError) as e:
+            self.node.get_logger().warn(f"Error reading joystick axes: {e}")
             self._send_zero_command()
             return
 
@@ -173,6 +172,7 @@ class PlatformDriveController(BaseController):
             and self._is_valid_float(self.current_linear_y)
             and self._is_valid_float(self.current_angular_z)
         ):
+            self.node.get_logger().warn("Invalid velocity values calculated, sending zero command.")
             self._send_zero_command()
             return
 
