@@ -72,9 +72,7 @@ class PlatformDriveController(BaseController):
         """Returns the names of low-level controllers needed for platform drive mode."""
         needed = self.duatic_controller_helper.get_all_controllers(self.potential_base_llcs)
 
-        available_jtcs = self.duatic_controller_helper.get_all_controllers(
-            self.potential_jtc_llcs
-        )
+        available_jtcs = self.duatic_controller_helper.get_all_controllers(self.potential_jtc_llcs)
         needed.extend(available_jtcs)
 
         return needed
