@@ -35,8 +35,8 @@ class PlatformDriveController(BaseController):
         self.needed_capabilities = ["mobility"]
         self.node.get_logger().info("Initializing platform drive controller.")
 
-        # Different robots name their base drive controller differently
-        self.potential_base_llcs = ["platform_velocity_controller", "mecanum_drive_controller"]
+        # At least one of these must be present — used as a hard requirement
+        self.base_needed_llcs = ["platform_velocity_controller", "mecanum_drive_controller"]
         self.potential_jtc_llcs = [
             "joint_trajectory_controller",
             "joint_trajectory_controller_hip",
@@ -68,7 +68,8 @@ class PlatformDriveController(BaseController):
 
     def get_low_level_controllers(self):
         """Returns the names of low-level controllers needed for platform drive mode."""
-        needed = self.duatic_controller_helper.get_all_controllers(self.potential_base_llcs)
+        found_base = self.duatic_controller_helper.get_all_controllers(self.base_needed_llcs)
+        needed = found_base if found_base else [self.base_needed_llcs[0]]
 
         available_jtcs = self.duatic_controller_helper.get_all_controllers(self.potential_jtc_llcs)
         needed.extend(available_jtcs)
