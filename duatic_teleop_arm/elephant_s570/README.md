@@ -215,22 +215,6 @@ and should be executed inside the corresponding ROS container.
 
 ---
 
-## Required Branches
-
-### duatic_teleop
-
-```bash
-git checkout feature/elephant-teleop
-```
-
-### duatic_helpers
-
-```bash
-git checkout feature/add_pyroki_ik_solver
-```
-
----
-
 ## Start Teleoperation Mapping
 
 Run:
