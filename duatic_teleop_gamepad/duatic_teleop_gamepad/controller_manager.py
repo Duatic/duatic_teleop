@@ -30,8 +30,10 @@ from duatic_teleop_gamepad.controllers.joint_trajectory_controller import (
     JointTrajectoryController,
 )
 from duatic_teleop_gamepad.controllers.freedrive_controller import FreedriveController
-from duatic_teleop_gamepad.controllers.mecanum_controller import MecanumController
 from duatic_teleop_gamepad.controllers.gripper_controller import GripperController
+from duatic_teleop_gamepad.controllers.platform_drive_controller import (
+    PlatformDriveController,
+)
 
 
 class ControllerManager:
@@ -49,7 +51,7 @@ class ControllerManager:
         self.duatic_controller_helper = DuaticControllerHelper(self.node)
 
         # Controllers that should not be deactivated once they are active (to preserve state/odometry)
-        self.protected_llcs = ["mecanum_drive_controller"]
+        self.protected_llcs = ["mecanum_drive_controller", "platform_velocity_controller"]
 
         # Share the single controller helper with every controller so we don't spawn one
         # 10 Hz polling timer + service clients per controller.
@@ -59,7 +61,7 @@ class ControllerManager:
         self.all_potential_controllers = {
             0: FreedriveController(self.node, duatic_robots_helper, helper),
             1: JointTrajectoryController(self.node, duatic_robots_helper, helper),
-            2: MecanumController(self.node, duatic_robots_helper, helper),
+            2: PlatformDriveController(self.node, duatic_robots_helper, helper),
         }
 
         self.gripper_controller = GripperController(self.node, duatic_robots_helper, helper)
