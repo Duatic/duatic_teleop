@@ -48,22 +48,6 @@ The displayed joint values should change accordingly.
 
 ---
 
-## Teleoperation Button
-
-### Important Notes
-
-* The buttons on the **left arm are currently not working**.
-* Only use the buttons on the **right arm**.
-
-### Teleoperation Enable Button
-
-The green LED display on the right arm is also a button.
-
-**Behavior:**
-
-* Press and hold → Teleoperation is active.
-* Release → Robot switches to freeze mode.
-
 ### Safety Recommendation
 
 Whenever:
@@ -237,15 +221,65 @@ This node:
 
 ---
 
+## Verification in RViz
+
+First, visualize the current target poses from the teleop arm. Open Rviz and add the following topics:
+
+```python
+/visu/target_pose (if single arm)
+/visu/target_pose/left (if dual-arm)
+/visu/target_pose/right (if dual-arm)
+```
+
+When you move the teleop arm, those targets should move too.
+
+Then also visualize these topics:
+
+```python
+/cartesian_pose_controller/target_pose (if single arm)
+/cartesian_pose_controller/target_pose/left (if dual-arm)
+/cartesian_pose_controller/target_pose/right (if dual-arm)
+```
+
+These are the topics to which the IK solver subscribes and sending the solution to the Joint Trajectory Controller. They are only published while the teleop button is being pressed.
+
+## Teleoperation Button
+
+### Important Notes
+
+* The buttons on the **left arm are currently not working**.
+* Only use the buttons on the **right arm**.
+
+### Teleoperation Enable Button
+
+The green LED display on the right arm is also a button. This is the teleop button, also called A button in the script.
+
+**Behavior:**
+
+* Press and hold → Teleoperation is active.
+* Release → Robot switches to freeze mode.
+
+When using:
+
+```text
+remapping_deltas
+```
+
+and pressing the teleop button:
+
+* /cartesian_pose_controller/target_pose* should align with the current end-effector poses and then moved from this starting point when you move the teleop arm.
+
+---
+
 # 5. Teleoperation Modes
 
-The elephant_s570 node supports two teleoperation strategies.
+The elephant_s570_node supports two teleoperation strategies.
 
 ---
 
 ## Mode 1: Remapping Deltas (Recommended)
 
-Default setting:
+This is the default setting:
 
 ```python
 self.teleop_method = 'remapping_deltas'
@@ -262,7 +296,7 @@ Example:
 
 ```text
 Move hand 10 cm left
-→ Robot moves 10 cm left
+→ Robot moves 10 cm left from current configuration
 ```
 
 ---
@@ -282,8 +316,9 @@ The teleoperation workspace is mapped onto the robot workspace.
 Example:
 
 ```text
-Move hand 10 cm left
-→ Robot may move 20 cm or more
+My hand is at around my shoulder height
+→ Robot hand goes to around its shoulder height
+When I move my hand 10cm into a direction, the robot will move around 25cm into this direction
 ```
 
 because the robot arms are larger than the teleoperation arms.
@@ -297,22 +332,6 @@ remapping_deltas
 ```
 
 unless specifically testing workspace scaling.
-
----
-
-## Verification in RViz
-
-Visualize the target pose topics.
-
-When using:
-
-```text
-remapping_deltas
-```
-
-and pressing the teleop button:
-
-* Target poses should align with the current end-effector poses.
 
 ---
 
@@ -343,7 +362,7 @@ Always verify:
 Robot is in Freeze Mode
 ```
 
-before starting it.
+before starting it. Otherwise, the robot will move very fast to the current transferred (or last transferred) command joint configuration.
 
 ---
 
@@ -383,7 +402,7 @@ ros2 topic echo /joint_trajectory_controller_arm_right/joint_trajectory
 
 ### Expected Result
 
-The commanded joint values should be reasonably close to the actual joint states.
+The commanded joint values should be reasonably close to the actual joint states. If this is not the case, don't deactivate the freeze controller, otherwise, sudden very fast movements happen that can hurt people and damage the robot.
 
 Example:
 
@@ -448,7 +467,7 @@ Always use this as the primary safety mechanism during teleoperation.
 
 ### Collision Avoidance
 
-A basic collision avoidance system is currently implemented to help protect the robot during teleoperation.
+A basic collision avoidance system is currently implemented to help protect the robot during teleoperation. But self collision can still happen, especially with a 7dof arm that can move it's elbows into it's body.
 
 #### Base Protection
 
