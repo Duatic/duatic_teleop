@@ -175,7 +175,7 @@ Run:
 ros2 run elephant_s570 s570_hardware_node
 ```
 
-The node automatically detects the correct serial port.
+The node automatically detects the correct serial port. If it doesn't find a serial port, restart the container while the arm is connected via USB so the port is mounted correctly into the container.
 
 ### Manual Port Selection
 
