@@ -29,7 +29,7 @@ Connect the Elephant S570 arm to your laptop using the supplied USB cable.
 Once connected:
 
 1. The display should light up.
-2. Press the **power button** on the left side of the display.
+2. Press the **red power button** on the left side of the display.
 3. The display should show:
 
    * Joint angles
@@ -158,20 +158,6 @@ The values should update and match the values shown on the arm display.
 
 > For DXTR systems this would require connecting the arm directly to the NUC, which is currently **not recommended**.
 
-## Required Branches
-
-### duatic_teleop
-
-```bash
-git checkout feature/elephant-teleop
-```
-
-### duatic_helpers
-
-```bash
-git checkout feature/add_pyroki_ik_solver
-```
-
 ---
 
 ## Start Hardware Driver
@@ -229,28 +215,12 @@ and should be executed inside the corresponding ROS container.
 
 ---
 
-## Required Branches
-
-### duatic_teleop
-
-```bash
-git checkout feature/elephant-teleop
-```
-
-### duatic_helpers
-
-```bash
-git checkout feature/add_pyroki_ik_solver
-```
-
----
-
 ## Start Teleoperation Mapping
 
 Run:
 
 ```bash
-ros2 run elephant_s570 elephant_s570
+ros2 run elephant_s570 elephant_s570_node
 ```
 
 This node:
@@ -293,6 +263,12 @@ Move hand 10 cm left
 ---
 
 ## Mode 2: Mapped Action Spaces
+
+Change in duatic_teleop/duatic_teleop_arm/elephant_s570/node.py:
+
+```python
+self.teleop_method = 'mapped_actionspaces'
+```
 
 ### Behavior
 
@@ -369,7 +345,7 @@ before starting it.
 Run:
 
 ```bash
-ros2 run duatic_teleop_ik interactive_pyroki_node
+ros2 run duatic_teleop_ik interactive_pyroki_node --ros-args -p use_interactive_markers:=False
 ```
 
 The node:
