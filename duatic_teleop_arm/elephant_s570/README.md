@@ -29,7 +29,7 @@ Connect the Elephant S570 arm to your laptop using the supplied USB cable.
 Once connected:
 
 1. The display should light up.
-2. Press the **power button** on the left side of the display.
+2. Press the **red power button** on the left side of the display.
 3. The display should show:
 
    * Joint angles
