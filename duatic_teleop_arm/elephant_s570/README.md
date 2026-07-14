@@ -345,7 +345,7 @@ before starting it.
 Run:
 
 ```bash
-ros2 run duatic_teleop_ik interactive_pyroki_node
+ros2 run duatic_teleop_ik interactive_pyroki_node --ros-args -p use_interactive_markers:=False
 ```
 
 The node:
