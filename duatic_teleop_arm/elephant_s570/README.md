@@ -220,7 +220,7 @@ and should be executed inside the corresponding ROS container.
 Run:
 
 ```bash
-ros2 run elephant_s570 elephant_s570
+ros2 run elephant_s570 elephant_s570_node
 ```
 
 This node:
