@@ -158,20 +158,6 @@ The values should update and match the values shown on the arm display.
 
 > For DXTR systems this would require connecting the arm directly to the NUC, which is currently **not recommended**.
 
-## Required Branches
-
-### duatic_teleop
-
-```bash
-git checkout feature/elephant-teleop
-```
-
-### duatic_helpers
-
-```bash
-git checkout feature/add_pyroki_ik_solver
-```
-
 ---
 
 ## Start Hardware Driver
