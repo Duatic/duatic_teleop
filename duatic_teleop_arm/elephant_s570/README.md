@@ -264,6 +264,12 @@ Move hand 10 cm left
 
 ## Mode 2: Mapped Action Spaces
 
+Change in duatic_teleop/duatic_teleop_arm/elephant_s570/node.py:
+
+```python
+self.teleop_method = 'mapped_actionspaces'
+```
+
 ### Behavior
 
 The teleoperation workspace is mapped onto the robot workspace.
