@@ -15,6 +15,8 @@ The setup supports two modes:
 
    * Teleoperation arm connected directly to the robot computer (or Ubuntu workstation).
 
+Before following this guide, start the robot stack with your launch file.
+
 ---
 
 # 1. Teleoperation Arm Setup
