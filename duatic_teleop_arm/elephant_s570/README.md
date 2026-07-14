@@ -41,6 +41,9 @@ Move the teleoperation arms manually.
 
 The displayed joint values should change accordingly.
 
+> **Important:**
+> We only mount ports into the docker container during creation. Therefore, as soon as you plugged the USB cable into your laptop, restart your container so you find the correct ports inside.
+
 ---
 
 ## Teleoperation Button
