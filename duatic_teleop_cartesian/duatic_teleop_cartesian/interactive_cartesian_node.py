@@ -19,7 +19,7 @@ target_topics[i]. A companion "<target_topics[i]>_error" topic
 pose received on pose_topics[i].
 
 Subscribing "<topics_prefix>/reset_marker" (std_msgs/String, comma-separated names) resets
-the matching target(s) — matched against pose_topic, pose_topic_name, or marker_name — so
+the matching target(s) — matched against pose_topic, target_name, or marker_name — so
 the next incoming pose re-initializes their marker.
 """
 
@@ -71,7 +71,7 @@ class Target:
 
     index: int
     pose_topic: str
-    pose_topic_name: str
+    target_name: str
     target_topic: str
     error_topic: str
     marker_name: str
@@ -161,14 +161,14 @@ class InteractiveCartesianNode(Node):
 
         self.targets: list[Target] = []
         for i, (pose_topic, target_topic) in enumerate(zip(pose_topics, target_topics)):
-            pose_topic_name = derive_topic_name(pose_topic)
+            target_name = derive_topic_name(pose_topic)
             target = Target(
                 index=i,
                 pose_topic=pose_topic,
-                pose_topic_name=pose_topic_name,
+                target_name=target_name,
                 target_topic=target_topic,
-                error_topic=f"{self.topics_prefix}/{pose_topic_name}_error",
-                marker_name=f"{self.get_name()}_{pose_topic_name}",
+                error_topic=f"{self.topics_prefix}/{target_name}_error",
+                marker_name=f"{self.get_name()}_{target_name}",
                 marker_color=MARKER_COLORS[i % len(MARKER_COLORS)],
             )
             self.targets.append(target)
@@ -180,7 +180,7 @@ class InteractiveCartesianNode(Node):
             )
 
             self.get_logger().info(
-                f"Target {i}: name='{pose_topic_name}' pose_topic='{pose_topic}' "
+                f"Target {i}: name='{target_name}' pose_topic='{pose_topic}' "
                 f"-> target_topic='{target_topic}' error_topic='{target.error_topic}'"
             )
 
@@ -192,11 +192,7 @@ class InteractiveCartesianNode(Node):
         names = [name.strip() for name in msg.data.split(",") if name.strip()]
         for name in names:
             target = next(
-                (
-                    t
-                    for t in self.targets
-                    if name in (t.pose_topic, t.pose_topic_name, t.marker_name)
-                ),
+                (t for t in self.targets if name in (t.pose_topic, t.target_name, t.marker_name)),
                 None,
             )
             if target is None:
@@ -233,7 +229,7 @@ class InteractiveCartesianNode(Node):
         int_marker = InteractiveMarker()
         int_marker.header.frame_id = target.frame_id
         int_marker.name = target.marker_name
-        int_marker.description = f"Cartesian target ({target.pose_topic})"
+        int_marker.description = f"{self.get_name()} ({target.target_name})"
         int_marker.pose = target.target_pose
         int_marker.scale = 0.2
 
