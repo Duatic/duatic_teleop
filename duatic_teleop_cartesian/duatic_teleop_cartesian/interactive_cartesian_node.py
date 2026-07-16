@@ -42,6 +42,28 @@ MARKER_COLORS = [
     (0.8, 0.1, 1.0, 0.5),
 ]
 
+KNOWN_TOPIC_SUFFIXES = {"pose", "twist", "acceleration", "effort"}
+KNOWN_TOPIC_SEPARATORS = {"/", "_", "-", " "}
+
+
+def derive_topic_name(topic: str) -> str:
+    """Last path segment of `topic`, after repeatedly stripping a trailing known
+    frame (e.g. 'pose') or separator (e.g. '/', '_') from the end.
+    """
+    name = topic
+    cut_name = True
+    while cut_name:
+        cut_name = False
+        for token in KNOWN_TOPIC_SUFFIXES | KNOWN_TOPIC_SEPARATORS:
+            if name.endswith(token):
+                name = name[: -len(token)]
+                cut_name = True
+                break
+    name = name.rsplit("/", 1)[-1]
+    if not name:
+        name = topic.rsplit("/", 1)[-1]
+    return name
+
 
 @dataclass
 class Target:
@@ -139,7 +161,7 @@ class InteractiveCartesianNode(Node):
 
         self.targets: list[Target] = []
         for i, (pose_topic, target_topic) in enumerate(zip(pose_topics, target_topics)):
-            pose_topic_name = pose_topic.rsplit("/", 1)[-1]
+            pose_topic_name = derive_topic_name(pose_topic)
             target = Target(
                 index=i,
                 pose_topic=pose_topic,
@@ -158,8 +180,8 @@ class InteractiveCartesianNode(Node):
             )
 
             self.get_logger().info(
-                f"Target {i}: pose_topic='{pose_topic}' -> target_topic='{target_topic}' "
-                f"error_topic='{target.error_topic}'"
+                f"Target {i}: name='{pose_topic_name}' pose_topic='{pose_topic}' "
+                f"-> target_topic='{target_topic}' error_topic='{target.error_topic}'"
             )
 
         self.create_subscription(
