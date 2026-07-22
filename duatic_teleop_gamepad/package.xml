@@ -8,7 +8,7 @@
     Maps gamepad axes and buttons to robot control commands.
   </description>
   <maintainer email="tschwarzer@duatic.com">Timo Schwarzer</maintainer>
-  <license>BSD-3-Clause</license>
+  <license>DCL-1</license>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>duatic_helpers</exec_depend>

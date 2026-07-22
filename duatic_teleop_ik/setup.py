@@ -15,7 +15,7 @@ setup(
     maintainer="Duatic AG",
     maintainer_email="dev@duatic.com",
     description="High-performance, JIT-compiled inverse kinematics solver using PyRoki and JAX.",
-    license="BSD-3-Clause",
+    license="DCL-1",
     extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
