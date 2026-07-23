@@ -9,6 +9,9 @@ Parameters:
     (geometry_msgs/PoseStamped), index-matched with pose_topics.
   - topics_prefix (string, default: the node's name): namespace prefix for all error topics,
     e.g. "<topics_prefix>/<target_topic>_error".
+  - world_aligned_controls (bool, default: false): if true, the move/rotate handles of every
+    interactive marker stay aligned with the global reference frame instead of rotating along
+    with the marker's own orientation.
 
 Each marker's frame is taken from the header.frame_id of the pose_topics[i] subscription
 (set on the first message received) and reused for the published target pose.
@@ -144,10 +147,12 @@ class InteractiveCartesianNode(Node):
         self.declare_parameter("pose_topics", [], dynamic_string_array)
         self.declare_parameter("target_topics", [], dynamic_string_array)
         self.declare_parameter("topics_prefix", self.get_name())
+        self.declare_parameter("world_aligned_controls", True)
 
         pose_topics = list(self.get_parameter("pose_topics").value)
         target_topics = list(self.get_parameter("target_topics").value)
         self.topics_prefix = self.get_parameter("topics_prefix").value.strip("/")
+        self.world_aligned_controls = self.get_parameter("world_aligned_controls").value
 
         if not pose_topics or len(pose_topics) != len(target_topics):
             self.get_logger().error(
@@ -262,6 +267,11 @@ class InteractiveCartesianNode(Node):
                 control.orientation.x = x
                 control.orientation.y = y
                 control.orientation.z = z
+                control.orientation_mode = (
+                    InteractiveMarkerControl.FIXED
+                    if self.world_aligned_controls
+                    else InteractiveMarkerControl.INHERIT
+                )
                 int_marker.controls.append(control)
 
         self.server.insert(
