@@ -21,11 +21,12 @@ target_topics[i]. A companion "<target_topics[i]>_error" topic
 (geometry_msgs/Twist) reports the pose error between the target and the latest
 pose received on pose_topics[i].
 
-Subscribing "<topics_prefix>/reset_marker" (std_msgs/String, comma-separated names) resets
-the matching target(s) — matched against pose_topic, target_name, or marker_name — so
-the next incoming pose re-initializes their marker.
+Subscribing "<topics_prefix>/reset_marker" (std_msgs/String, comma-separated regular
+expressions) resets every target(s) whose pose_topic, target_name, or marker_name
+matches any of the patterns, so the next incoming pose re-initializes their marker.
 """
 
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -266,18 +267,30 @@ class InteractiveCartesianNode(Node):
         return True
 
     def _reset_marker_cb(self, msg: String):
-        names = [name.strip() for name in msg.data.split(",") if name.strip()]
-        for name in names:
-            target = next(
-                (t for t in self.targets if name in (t.pose_topic, t.target_name, t.marker_name)),
-                None,
-            )
-            if target is None:
-                self.get_logger().warn(f"reset_marker: no target matches '{name}'")
+        patterns = [pattern.strip() for pattern in msg.data.split(",") if pattern.strip()]
+        matched_indices = set()
+        for pattern in patterns:
+            try:
+                regex = re.compile(pattern)
+            except re.error as e:
+                self.get_logger().warn(f"reset_marker: invalid regex '{pattern}': {e}")
                 continue
-            target.initialized = False
+
+            matched_indices.update(
+                t.index
+                for t in self.targets
+                if t.index != -1
+                and any(regex.search(field) for field in (t.pose_topic, t.target_name, t.marker_name))
+            )
+
+        if not matched_indices:
+            self.get_logger().warn(f"reset_marker: no target matches '{msg.data}'")
+            return
+
+        for target_index in matched_indices:
+            self.targets[target_index].initialized = False
             self.get_logger().info(
-                f"reset_marker: reset target {target.index} ('{target.marker_name}') matching '{name}'"
+                f"reset_marker: reset target {target_index} ('{self.targets[target_index].marker_name}')"
             )
 
     def _pose_cb(self, msg: PoseStamped, index: int):
