@@ -46,12 +46,16 @@ MARKER_COLORS = [
 ]
 
 KNOWN_TOPIC_SUFFIXES = {"pose", "twist", "acceleration", "effort"}
-KNOWN_TOPIC_SEPARATORS = {"/", "_", "-", " "}
+NAME_PREFIX_SEPARATOR = "_"
+KNOWN_TOPIC_SEPARATORS = {NAME_PREFIX_SEPARATOR, "/", "-", " "}
 
 
-def derive_topic_name(topic: str) -> str:
-    """Last path segment of `topic`, after repeatedly stripping a trailing known
-    frame (e.g. 'pose') or separator (e.g. '/', '_') from the end.
+def derive_topic_name(topic: str) -> list[str]:
+    """[device_topic_name, *prefixes] for `topic`.
+
+    The device topic name is the last path segment after repeatedly stripping a
+    trailing known frame (e.g. 'pose') or separator (e.g. '/', '_') from the end.
+    The prefixes are the remaining '/'-separated path segments, in order.
     """
     name = topic
     cut_name = True
@@ -62,10 +66,12 @@ def derive_topic_name(topic: str) -> str:
                 name = name[: -len(token)]
                 cut_name = True
                 break
-    name = name.rsplit("/", 1)[-1]
-    if not name:
-        name = topic.rsplit("/", 1)[-1]
-    return name
+    parts = name.split("/")
+    device_name = parts[-1]
+    prefixes = [p for p in parts[:-1] if p]
+    if not device_name:
+        device_name = topic.rsplit("/", 1)[-1]
+    return [device_name, *prefixes]
 
 
 @dataclass
@@ -74,7 +80,7 @@ class Target:
 
     index: int
     pose_topic: str
-    target_name: str
+    topic_names: list[str]
     target_topic: str
     error_topic: str
     marker_name: str
@@ -83,6 +89,10 @@ class Target:
     actual_pose: Pose = None
     target_pose: Pose = None
     initialized: bool = False
+
+    @property
+    def target_name(self) -> str:
+        return self.topic_names[0]
 
 
 def quat_to_array(q) -> np.ndarray:
@@ -165,33 +175,95 @@ class InteractiveCartesianNode(Node):
         self.server = InteractiveMarkerServer(self, self.get_name())
 
         self.targets: list[Target] = []
+        unique_target_names: dict[str, int] = {}
         for i, (pose_topic, target_topic) in enumerate(zip(pose_topics, target_topics)):
-            target_name = derive_topic_name(pose_topic)
+            # create target
             target = Target(
                 index=i,
                 pose_topic=pose_topic,
-                target_name=target_name,
+                topic_names=derive_topic_name(pose_topic),
                 target_topic=target_topic,
-                error_topic=f"{self.topics_prefix}/{target_name}_error",
-                marker_name=f"{self.get_name()}_{target_name}",
+                error_topic="",
+                marker_name="",
                 marker_color=MARKER_COLORS[i % len(MARKER_COLORS)],
             )
+            self.get_logger().info(f"Configuring Target {target.index}: {target.target_name}")
+            # ensure uniqueness
+            self._ensure_unique_target_name(target, unique_target_names)
+            # store
             self.targets.append(target)
 
-            target.target_pub = self.create_publisher(PoseStamped, target_topic, 10)
-            target.error_pub = self.create_publisher(Twist, target.error_topic, 10)
-            self.create_subscription(
-                PoseStamped, pose_topic, lambda msg, idx=i: self._pose_cb(msg, idx), 10
-            )
+        for target in self.targets:
+            if target.index != -1:
+                target.error_topic = f"{self.topics_prefix}/{target.target_name}_error"
+                target.marker_name = f"{self.get_name()}_{target.target_name}"
+                target.target_pub = self.create_publisher(PoseStamped, target.target_topic, 10)
+                target.error_pub = self.create_publisher(Twist, target.error_topic, 10)
+                self.create_subscription(
+                    PoseStamped,
+                    target.pose_topic,
+                    lambda msg, idx=target.index: self._pose_cb(msg, idx),
+                    10,
+                )
 
-            self.get_logger().info(
-                f"Target {i}: name='{target_name}' pose_topic='{pose_topic}' "
-                f"-> target_topic='{target_topic}' error_topic='{target.error_topic}'"
-            )
+                self.get_logger().info(
+                    f"Target {target.index}: name='{target.target_name}' pose_topic='{target.pose_topic}' "
+                    f"-> target_topic='{target.target_topic}' error_topic='{target.error_topic}'"
+                )
+            else:
+                self.get_logger().warn(
+                    f"Target ignored (pose_topic='{target.pose_topic}'): name could not be "
+                    "disambiguated; no publisher/subscriber created."
+                )
 
         self.create_subscription(
             String, f"{self.topics_prefix}/reset_marker", self._reset_marker_cb, 10
         )
+
+    def _ensure_unique_target_name(
+        self, target: Target, unique_target_names: dict[str, int]
+    ) -> bool:
+        """Recursively disambiguate `target`'s name against `unique_target_names`.
+
+        A name is never forgotten once used: on collision, both the colliding
+        target and `target` fold their nearest remaining topic-name prefix into
+        their name and are re-checked recursively. The retired name's dict entry
+        is kept (index set to -1) so it can never resurface. Returns False (and
+        logs an error) if `target` runs out of prefixes to disambiguate itself,
+        in which case its creation must be aborted.
+        """
+        name = target.target_name
+        owner_index = unique_target_names.get(name)
+
+        if owner_index is None:
+            unique_target_names[name] = target.index
+            return True
+        # renaming required
+        if len(target.topic_names) <= 1:
+            self.get_logger().error(
+                f"Target {target.index}: cannot disambiguate name '{name}', no prefixes left."
+            )
+            target.index = -1  # invalidate target
+            return False
+
+        # rename target
+        prefix = target.topic_names.pop()
+        target.topic_names[0] = f"{prefix}{NAME_PREFIX_SEPARATOR}{target.topic_names[0]}"
+        self.get_logger().info(
+            f"Target {target.index}: renamed '{name}' to '{target.target_name}'."
+        )
+        # recursively ensure target name uniqueness
+        if not self._ensure_unique_target_name(target, unique_target_names):
+            return False
+
+        # rename other target
+        if owner_index != -1:
+            unique_target_names[name] = -1  # invalidate owner index
+            if not self._ensure_unique_target_name(self.targets[owner_index], unique_target_names):
+                return False
+
+        # no error -> success
+        return True
 
     def _reset_marker_cb(self, msg: String):
         names = [name.strip() for name in msg.data.split(",") if name.strip()]
