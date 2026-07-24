@@ -280,7 +280,9 @@ class InteractiveCartesianNode(Node):
                 t.index
                 for t in self.targets
                 if t.index != -1
-                and any(regex.search(field) for field in (t.pose_topic, t.target_name, t.marker_name))
+                and any(
+                    regex.search(field) for field in (t.pose_topic, t.target_name, t.marker_name)
+                )
             )
 
         if not matched_indices:
