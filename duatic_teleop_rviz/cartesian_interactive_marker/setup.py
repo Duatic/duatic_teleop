@@ -15,8 +15,8 @@ setup(
     maintainer="Duatic AG",
     maintainer_email="pvonwirth@duatic.com",
     description=(
-        "Interactive RViz markers that mirror Cartesian pose topics, publish target poses, "
-        "and report pose error."
+        "Interactive RViz markers that mirror Cartesian poses (pose topics and/or TF frames), "
+        "publish target poses, and report pose error."
     ),
     license="BSD-3-Clause",
     extras_require={"test": ["pytest"]},
