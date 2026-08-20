@@ -136,14 +136,17 @@ class InteractivePyrokiNode(Node):
             self.server = None
             self.get_logger().info("Mode: PoseStamped topic")
 
-        # Start robot detection + control in background thread
-        self.control_thread = threading.Thread(target=self._init_and_run, daemon=True)
-        self.control_thread.start()
-
         self.previous_target_pose = None
 
-    def _init_and_run(self):
-        """Wait for robot detection, then run main control loop."""
+    def setup(self):
+        """Blocking robot detection + solver setup.
+
+        Must be called on the main thread, before rclpy.spin(node) starts (see main()).
+        DuaticRobotsHelper.wait_for_robot() spins this node internally (rclpy.spin_once);
+        rclpy explicitly forbids spinning the same node from multiple threads at once, so
+        this whole method has to run to completion *before* the node is handed to
+        rclpy.spin() — never concurrently with it (e.g. from a background thread).
+        """
         self.get_logger().info("Waiting for robot detection...")
         self.robots_helper.wait_for_robot()
 
@@ -184,12 +187,17 @@ class InteractivePyrokiNode(Node):
         # Setup trajectory publishers
         self._setup_publishers(arm_names, hip_names)
 
-        # Wait for URDF and solver initialization
+        # Wait for the URDF (description_cb() just caches it — see there for why solver init
+        # doesn't happen inline in that callback). Still nobody is spinning this node yet
+        # (rclpy.spin(node) only starts after setup() returns, see main()), so keep servicing
+        # callbacks ourselves here instead of a plain time.sleep(), or description_cb() would
+        # never run and this would hang forever.
         while self._urdf_data is None and rclpy.ok():
-            time.sleep(0.1)
+            rclpy.spin_once(self, timeout_sec=0.1)
 
-        # Now run the main control loop
-        self.main_loop()
+        # arm_states (built above) is guaranteed ready now, so the solver/masks can be built
+        # unconditionally.
+        self._initialize_solver(self._urdf_data)
 
     def _setup_publishers(self, arm_names, hip_names):
         """Create JointTrajectory publishers based on detected components."""
@@ -227,18 +235,21 @@ class InteractivePyrokiNode(Node):
                 )
 
     def description_cb(self, msg):
-        """Initialize solver from robot_description URDF."""
+        """Cache the robot_description URDF; setup() builds the solver once it's ready.
+
+        Solver construction needs arm_states to already be populated, which setup() only
+        guarantees once it reaches the point where it waits for this callback — so actual
+        initialization is deferred to _initialize_solver(), called from setup(), instead of
+        happening inline here.
+        """
         if self.solver is not None:
             return
-
         self._urdf_data = msg.data
 
-        # Wait until arm_states are populated by the detection thread
-        while not self.arm_states and rclpy.ok():
-            time.sleep(0.1)
-
+    def _initialize_solver(self, urdf_data):
+        """Build the IK solver and per-arm joint masks from `urdf_data`."""
         try:
-            self.solver = PyrokiIKSolver(msg.data)
+            self.solver = PyrokiIKSolver(urdf_data)
             self.joint_names = self.solver.joint_names
 
             self.get_logger().info(
@@ -679,6 +690,19 @@ class InteractivePyrokiNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = InteractivePyrokiNode()
+
+    # setup() spins the node itself (via DuaticRobotsHelper.wait_for_robot() and the URDF
+    # wait) to run robot detection to completion. That MUST happen before rclpy.spin(node)
+    # starts below — rclpy explicitly forbids spinning the same node from two threads at
+    # once, so this can't run concurrently with it (e.g. from a background thread).
+    node.setup()
+
+    # main_loop() itself never spins the node (only rclpy.spin() below does) — it just reads
+    # already-synchronized state and publishes, so it's safe to run on its own thread
+    # alongside rclpy.spin(node).
+    node.control_thread = threading.Thread(target=node.main_loop, daemon=True)
+    node.control_thread.start()
+
     rclpy.spin(node)
     rclpy.shutdown()
 
