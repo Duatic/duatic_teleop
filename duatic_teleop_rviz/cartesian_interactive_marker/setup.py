@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = "duatic_teleop_cartesian"
+package_name = "cartesian_interactive_marker"
 
 setup(
     name=package_name,
@@ -13,7 +13,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Duatic AG",
-    maintainer_email="dev@duatic.com",
+    maintainer_email="pvonwirth@duatic.com",
     description=(
         "Interactive RViz markers that mirror Cartesian pose topics, publish target poses, "
         "and report pose error."
@@ -22,7 +22,7 @@ setup(
     extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
-            "interactive_cartesian_node = duatic_teleop_cartesian.interactive_cartesian_node:main",
+            "cartesian_interactive_marker = cartesian_interactive_marker.node:main",
         ],
     },
 )
