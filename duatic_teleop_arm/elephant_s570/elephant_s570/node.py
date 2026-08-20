@@ -5,7 +5,7 @@ Subscribes to S570 joint states published via rosbridge by the Windows publisher
 publishes PoseStamped targets for the IK solver (interactive_pyroki_node).
 
 Each arm runs its own two-state state machine:
-  - RECALIBRATE: the arm's and the robot's current Cartesian poses (position + quaternion)
+  - REPOSITION: the arm's and the robot's current Cartesian poses (position + quaternion)
     are continuously tracked as "reference poses". Nothing is published as a target.
   - CONTROL: entered on deadman press (or, on the right arm, axis-lock activation), via
     on_control_activate(). Both reference poses are frozen at that instant. Every control
@@ -13,7 +13,7 @@ Each arm runs its own two-state state machine:
     reference pose as a 6DoF twist (linear + angular difference), scaled (by
     'teleop_linear_scale' / 'teleop_angular_scale'), and added directly onto the frozen
     robot reference pose to produce the target.
-  - On deadman release, the arm returns to RECALIBRATE and stops publishing target poses.
+  - On deadman release, the arm returns to REPOSITION and stops publishing target poses.
 
 On deadman press: deactivates freeze_controller, activates joint_trajectory_controller.
 On deadman release: deactivates JTC, activates freeze_controller.
@@ -30,11 +30,12 @@ orientation for the duration of the lock.
 Parameters:
     arm_side:                "left", "right", or "both" (default: "both")
     dual_arm_robot:          True if the robot has two arms (default: True)
-    robot_home_pos_x/y/z:    Robot EE reference-pose fallback position, used only if the TF
-                             lookup has never once succeeded (default: 0.4, 0.0, 0.3)
-    robot_home_quat_w/x/y/z: Robot EE reference-pose fallback orientation (default: identity)
     teleop_linear_scale:     Gain applied to the arm's linear motion (default: 1.0)
     teleop_angular_scale:    Gain applied to the arm's angular motion (default: 1.0)
+    target_topic_prefix:    Base topic to publish target poses to
+                             (default: "/cartesian_pose_controller/target_pose")
+    target_topic_suffix:    Appended after "/<side>" for a dual-arm robot, or right after
+                             target_topic_prefix for a single arm (default: "")
 
 Button mapping (per S570 arm):
     A (hold):  Deadman switch — teleop active while held
@@ -118,7 +119,7 @@ def _quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
 
 class ControlState(Enum):
-    RECALIBRATE = auto()  # tracking reference poses live; nothing published
+    REPOSITION = auto()  # tracking reference poses live; nothing published
     CONTROL = auto()  # reference poses frozen; publishing twist-derived targets
 
 
@@ -135,11 +136,11 @@ class S570ArmState:
 
     def __init__(self, side: str):
         self.side = side
-        self.state = ControlState.RECALIBRATE
+        self.state = ControlState.REPOSITION
         self.current_joints: np.ndarray | None = None
         self.deadman_held = False
 
-        # Reference poses: continuously updated while RECALIBRATE, frozen while CONTROL.
+        # Reference poses: continuously updated while REPOSITION, frozen while CONTROL.
         self.arm_reference_pose: Pose6D | None = None
         self.robot_reference_pose: Pose6D | None = None
 
@@ -160,17 +161,12 @@ class ElephantS570Node(Node):
         # --- Parameters ---
         self.declare_parameter("arm_side", "both")
         self.declare_parameter("dual_arm_robot", True)
-        self.declare_parameter("robot_home_pos_x", 0.4)
-        self.declare_parameter("robot_home_pos_y", 0.0)
-        self.declare_parameter("robot_home_pos_z", 0.3)
-        self.declare_parameter("robot_home_quat_w", 1.0)
-        self.declare_parameter("robot_home_quat_x", 0.0)
-        self.declare_parameter("robot_home_quat_y", 0.0)
-        self.declare_parameter("robot_home_quat_z", 0.0)
         self.declare_parameter("robot_base_frame", "base_link")
         self.declare_parameter("robot_ee_frame", "flange")
         self.declare_parameter("teleop_linear_scale", 1.0)
         self.declare_parameter("teleop_angular_scale", 1.0)
+        self.declare_parameter("target_topic_prefix", "/cartesian_pose_controller/target_pose")
+        self.declare_parameter("target_topic_suffix", "")
         # In case we want to run the inverse kinematics on a host machine
         # and then  send the jtc targets via rosbridge to the NUC:
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
@@ -187,25 +183,12 @@ class ElephantS570Node(Node):
         self.arm_side: str = self.get_parameter("arm_side").value
         self.dual_arm_robot: bool = self.get_parameter("dual_arm_robot").value
 
-        self.robot_home_pos = np.array(
-            [
-                self.get_parameter("robot_home_pos_x").value,
-                self.get_parameter("robot_home_pos_y").value,
-                self.get_parameter("robot_home_pos_z").value,
-            ]
-        )
-        self.robot_home_quat = np.array(
-            [
-                self.get_parameter("robot_home_quat_w").value,
-                self.get_parameter("robot_home_quat_x").value,
-                self.get_parameter("robot_home_quat_y").value,
-                self.get_parameter("robot_home_quat_z").value,
-            ]
-        )
         self.robot_base_frame: str = self.get_parameter("robot_base_frame").value
         self.robot_ee_frame: str = self.get_parameter("robot_ee_frame").value
         self.teleop_linear_scale: float = float(self.get_parameter("teleop_linear_scale").value)
         self.teleop_angular_scale: float = float(self.get_parameter("teleop_angular_scale").value)
+        self.target_topic_prefix: str = self.get_parameter("target_topic_prefix").value
+        self.target_topic_suffix: str = self.get_parameter("target_topic_suffix").value
 
         if self.arm_side not in ("left", "right", "both"):
             self.get_logger().error(f"Invalid arm_side '{self.arm_side}', defaulting to 'both'")
@@ -250,17 +233,17 @@ class ElephantS570Node(Node):
         self._joy_axes: list[float] = []
 
         # --- Target pose publishers ---
-        base_topic = "/cartesian_pose_controller/target_pose"
         self.pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
         if self.dual_arm_robot:
             for side in self._sides:
-                topic = f"{base_topic}/{side}"
+                topic = f"{self.target_topic_prefix}/{side}{self.target_topic_suffix}"
                 self.pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
                 self.get_logger().info(f"Publishing to {topic}")
         else:
-            self.pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, base_topic, 10)
-            self.get_logger().info(f"Publishing to {base_topic}")
+            topic = f"{self.target_topic_prefix}{self.target_topic_suffix}"
+            self.pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, topic, 10)
+            self.get_logger().info(f"Publishing to {topic}")
 
         # --- Visualization markers ---
         # S570 FK end-effector marker (for S570 RViz — always published)
@@ -366,7 +349,7 @@ class ElephantS570Node(Node):
 
     def _joint_state_cb(self, msg: JointState) -> None:
         """Split combined JointState (14 joints) into per-arm state, and — while
-        RECALIBRATE — keep both reference poses live."""
+        REPOSITION — keep both reference poses live."""
         joint_map = dict(zip(msg.name, msg.position))
 
         for side, arm in self.arms.items():
@@ -378,11 +361,11 @@ class ElephantS570Node(Node):
             if not had_data:
                 self.get_logger().info(f"S570 {side} data received. Hold A to teleop.")
 
-            if arm.state == ControlState.RECALIBRATE:
+            if arm.state == ControlState.REPOSITION:
                 self._update_reference_pose(arm, side)
 
     def _update_reference_pose(self, arm: S570ArmState, side: str) -> None:
-        """While RECALIBRATE: continuously refresh both reference poses from live data."""
+        """While REPOSITION: continuously refresh both reference poses from live data."""
         pos, quat = self.fk.compute(side, arm.current_joints)
         arm.arm_reference_pose = Pose6D(pos, quat)
 
@@ -390,17 +373,9 @@ class ElephantS570Node(Node):
         if tf_result is not None:
             robot_pos, robot_quat = tf_result
             arm.robot_reference_pose = Pose6D(robot_pos, robot_quat)
-        elif arm.robot_reference_pose is None:
-            # TF has never once succeeded — fall back to the parameter default so a
-            # reference pose exists at all (matches the old one-shot fallback behavior).
-            arm.robot_reference_pose = Pose6D(
-                self.robot_home_pos.copy(), self.robot_home_quat.copy()
-            )
-            self.get_logger().warn(
-                f"S570 {arm.side} — no TF yet, using parameter fallback for robot reference pose"
-            )
-        # else: TF failed this tick but we already have a previously tracked value — keep
-        # it rather than regressing to the static fallback.
+        # else: TF failed this tick. robot_reference_pose is left as-is — None until the
+        # first successful lookup (on_control_activate() correctly refuses to activate until
+        # then), or its last successfully tracked value otherwise.
 
     def _buttons_cb(self, msg: Joy) -> None:
         # The left-side buttons/axes are physically broken on this controller — mirror the
@@ -472,9 +447,9 @@ class ElephantS570Node(Node):
             return None
 
     def on_control_activate(self, arm: S570ArmState) -> bool:
-        """RECALIBRATE -> CONTROL: freeze both reference poses.
+        """REPOSITION -> CONTROL: freeze both reference poses.
 
-        Returns False (and stays in RECALIBRATE) if no reference pose is available yet.
+        Returns False (and stays in REPOSITION) if no reference pose is available yet.
         """
         if arm.arm_reference_pose is None or arm.robot_reference_pose is None:
             self.get_logger().warn(
@@ -494,9 +469,9 @@ class ElephantS570Node(Node):
         return True
 
     def on_control_deactivate(self, arm: S570ArmState) -> None:
-        """CONTROL -> RECALIBRATE: resume tracking, stop publishing targets for this arm."""
-        arm.state = ControlState.RECALIBRATE
-        self.get_logger().info(f"S570 {arm.side} released — RECALIBRATE")
+        """CONTROL -> REPOSITION: resume tracking, stop publishing targets for this arm."""
+        arm.state = ControlState.REPOSITION
+        self.get_logger().info(f"S570 {arm.side} released — REPOSITION")
 
         # Only deactivate controllers when ALL arms are released
         if not self._any_arm_active():
