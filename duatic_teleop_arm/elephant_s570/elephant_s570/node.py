@@ -11,12 +11,15 @@ Each arm runs its own two-state state machine:
     on_control_activate(). Both reference poses are frozen at that instant. Every control
     cycle after that, the arm's ACTUAL pose (still updated live) is compared to its frozen
     reference pose as a 6DoF twist (linear + angular difference), scaled (by
-    'teleop_linear_scale' / 'teleop_angular_scale'), and added directly onto the frozen
+    'linear_acceleration' / 'angular_acceleration'), and added directly onto the frozen
     robot reference pose to produce the target.
   - On deadman release, the arm returns to REPOSITION and stops publishing target poses.
 
-On deadman press: deactivates freeze_controller, activates joint_trajectory_controller.
-On deadman release: deactivates JTC, activates freeze_controller.
+On deadman press: deactivates freeze_controller, activates the controllers matching
+'auto_controller_activation' (joint_trajectory_controller by default).
+On deadman release: deactivates those controllers, activates freeze_controller.
+freeze_controller is always toggled this way, regardless of 'auto_controller_activation'; if
+that parameter is empty, it's just the only controller switched on button press/release.
 
 Each arm is independently controlled via a deadman switch (Button A on each side).
 Hold A to teleop, release to stop.
@@ -28,14 +31,43 @@ translation to a single axis (the robot EE's local Z axis at that instant) and f
 orientation for the duration of the lock.
 
 Parameters:
-    arm_side:                "left", "right", or "both" (default: "both")
-    dual_arm_robot:          True if the robot has two arms (default: True)
-    teleop_linear_scale:     Gain applied to the arm's linear motion (default: 1.0)
-    teleop_angular_scale:    Gain applied to the arm's angular motion (default: 1.0)
-    target_topic_prefix:    Base topic to publish target poses to
+    robot_base_frame:       TF frame the robot's per-arm reference poses are tracked
+                             relative to (looked up as robot_base_frame -> pose_tf[i], see
+                             pose_topics/pose_tf below), and the frame_id stamped on every
+                             published target/visualization pose.
+                             (default: "base_link")
+    auto_controller_activation: List of controller-name substrings to match for the
+                             controller(s) automatically activated on button press (and
+                             deactivated on release), swapping with freeze_controller the
+                             other way. Matching is delegated to
+                             DuaticControllerHelper.get_all_controllers(). If empty, no
+                             extra controller is activated/deactivated — freeze_controller
+                             is still toggled on every button press/release regardless.
+                             (default: ["joint_trajectory_controller"] — this node's
+                             historical, hardcoded behavior)
+    linear_acceleration:     Gain applied to the arm's linear motion (default: 1.0)
+    angular_acceleration:    Gain applied to the arm's angular motion (default: 1.0)
+    topics_prefix:           Prepended (plain string concatenation) to every non-empty entry
+                             of pose_topics and target_topics below, and to the per-side
+                             visualization topic ("/visu/target_pose/<side>"), e.g. for
+                             namespacing every topic this node touches at once.
                              (default: "/cartesian_pose_controller/target_pose")
-    target_topic_suffix:    Appended after "/<side>" for a dual-arm robot, or right after
-                             target_topic_prefix for a single arm (default: "")
+    pose_topics, pose_tf, target_topics:
+                             Index-matched (index 0 = left arm, index 1 = right; a shorter
+                             override is padded with ""). At index i, the reference pose
+                             comes from pose_topics[i] if non-empty — a PoseStamped topic,
+                             used as-is in whatever frame it publishes — otherwise from a TF
+                             lookup of pose_tf[i] relative to robot_base_frame. Set the
+                             unused one of the pair to "". If both are "", that side is
+                             disabled (target_topics[i] then unused). target_topics[i] is
+                             the topic the computed target is published to (after
+                             topics_prefix); stamped robot_base_frame for TF mode, or
+                             pose_topics[i]'s own frame_id for pose-topic mode.
+                             (default: pose_topics=["", ""] (TF for both arms), pose_tf=
+                             ["arm_left/flange", "arm_right/flange"], target_topics=
+                             ["/left", "/right"] — this node's historical, hardcoded
+                             dual-arm/TF-tracked configuration, publishing to
+                             "/cartesian_pose_controller/target_pose/left" and ".../right")
 
 Button mapping (per S570 arm):
     A (hold):  Deadman switch — teleop active while held
@@ -44,16 +76,23 @@ Button mapping (per S570 arm):
 
 Usage:
     ros2 run elephant_s570 elephant_s570_node
-    ros2 run elephant_s570 elephant_s570_node --ros-args -p arm_side:=left
-    ros2 run elephant_s570 elephant_s570_node --ros-args -p arm_side:=right -p dual_arm_robot:=false
+    # Left arm only (right disabled):
+    ros2 run elephant_s570 elephant_s570_node --ros-args -p pose_tf:="['arm_left/flange', '']"
+    # Right arm only, on a single-arm robot (EE frame is just "flange", no "arm_right/" prefix):
+    ros2 run elephant_s570 elephant_s570_node --ros-args -p pose_tf:="['', 'flange']"
+    # Right arm tracked from a pose topic instead of TF:
+    ros2 run elephant_s570 elephant_s570_node --ros-args \\
+        -p pose_topics:="['', '/some/pose_topic']" -p pose_tf:="['arm_left/flange', '']"
 """
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from functools import partial
 
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.time import Time
 from sensor_msgs.msg import JointState, Joy
 from geometry_msgs.msg import PoseStamped
@@ -69,29 +108,41 @@ from elephant_s570.fk import S570FK
 import websocket
 import json
 
+# Freeze controller name, always switched opposite to 'auto_controller_activation' (see
+# _activate_controllers()/_deactivate_controllers()). Not itself configurable.
+FREEZE_CONTROLLER_NAME = "freeze_controller"
 
-def _quat_to_rotation_matrix(q_wxyz: np.ndarray) -> np.ndarray:
-    """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
+# Fixed side order 'pose_topics'/'pose_tf'/'target_topics' are index-matched against.
+SIDES = ("left", "right")
+
+# TF-mode poll rate for _tf_poll_cb(), decoupled from the joint_states callback's own rate.
+TF_POLL_PERIOD_SEC = 0.05
+
+
+def _quat_conjugate(q_wxyz: np.ndarray) -> np.ndarray:
+    """Conjugate (= inverse, for a unit quaternion) of [w, x, y, z]."""
     w, x, y, z = q_wxyz
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-        ]
-    )
+    return np.array([w, -x, -y, -z])
 
 
-def _rotation_matrix_to_rotvec(R: np.ndarray) -> np.ndarray:
-    """3x3 rotation matrix -> rotation vector (axis * angle)."""
-    cos_angle = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
-    angle = np.arccos(cos_angle)
-    if angle < 1e-8:
+def _quat_to_rotvec(q_wxyz: np.ndarray) -> np.ndarray:
+    """Unit quaternion [w, x, y, z] -> rotation vector (axis * angle), directly —
+    no rotation matrix round-trip needed."""
+    w, x, y, z = q_wxyz
+    v = np.array([x, y, z])
+    v_norm = np.linalg.norm(v)
+    if v_norm < 1e-8:
         return np.zeros(3)
-    axis = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]) / (
-        2.0 * np.sin(angle)
-    )
-    return axis * angle
+    angle = 2.0 * np.arctan2(v_norm, w)
+    return (v / v_norm) * angle
+
+
+def _quat_rotate_vector(q_wxyz: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate 3-vector v by unit quaternion [w, x, y, z] (no rotation matrix needed)."""
+    w, x, y, z = q_wxyz
+    q_vec = np.array([x, y, z])
+    t = 2.0 * np.cross(q_vec, v)
+    return v + w * t + np.cross(q_vec, t)
 
 
 def _rotvec_to_quat(rotvec: np.ndarray) -> np.ndarray:
@@ -159,14 +210,16 @@ class ElephantS570Node(Node):
         super().__init__("elephant_s570_node")
 
         # --- Parameters ---
-        self.declare_parameter("arm_side", "both")
-        self.declare_parameter("dual_arm_robot", True)
         self.declare_parameter("robot_base_frame", "base_link")
-        self.declare_parameter("robot_ee_frame", "flange")
-        self.declare_parameter("teleop_linear_scale", 1.0)
-        self.declare_parameter("teleop_angular_scale", 1.0)
-        self.declare_parameter("target_topic_prefix", "/cartesian_pose_controller/target_pose")
-        self.declare_parameter("target_topic_suffix", "")
+        self.declare_parameter("linear_acceleration", 1.0)
+        self.declare_parameter("angular_acceleration", 1.0)
+        # Controller(s) auto-activated/deactivated on button press — see module docstring.
+        self.declare_parameter("auto_controller_activation", ["joint_trajectory_controller"])
+        # Index-matched (index 0 = left, index 1 = right) — see module docstring.
+        self.declare_parameter("topics_prefix", "/cartesian_pose_controller/target_pose")
+        self.declare_parameter("pose_topics", ["", ""])
+        self.declare_parameter("pose_tf", ["arm_left/flange", "arm_right/flange"])
+        self.declare_parameter("target_topics", ["/left", "/right"])
         # In case we want to run the inverse kinematics on a host machine
         # and then  send the jtc targets via rosbridge to the NUC:
         self.declare_parameter("uri", "ws://192.168.89.157:9090")
@@ -180,27 +233,96 @@ class ElephantS570Node(Node):
             self.ws.connect(self.rosbridge_uri)
             self.advertised_topics = set()
 
-        self.arm_side: str = self.get_parameter("arm_side").value
-        self.dual_arm_robot: bool = self.get_parameter("dual_arm_robot").value
-
         self.robot_base_frame: str = self.get_parameter("robot_base_frame").value
-        self.robot_ee_frame: str = self.get_parameter("robot_ee_frame").value
-        self.teleop_linear_scale: float = float(self.get_parameter("teleop_linear_scale").value)
-        self.teleop_angular_scale: float = float(self.get_parameter("teleop_angular_scale").value)
-        self.target_topic_prefix: str = self.get_parameter("target_topic_prefix").value
-        self.target_topic_suffix: str = self.get_parameter("target_topic_suffix").value
+        self.linear_acceleration: float = float(self.get_parameter("linear_acceleration").value)
+        self.angular_acceleration: float = float(self.get_parameter("angular_acceleration").value)
+        self.auto_controller_activation_names: list[str] = self._get_string_array_param(
+            "auto_controller_activation"
+        )
+        self.get_logger().info(
+            f"'{FREEZE_CONTROLLER_NAME}' is toggled on every button press/release, "
+            "regardless of auto_controller_activation."
+        )
+        if self.auto_controller_activation_names:
+            self.get_logger().info(
+                "Controller auto-activation ENABLED — additionally switching controllers "
+                f"matching {self.auto_controller_activation_names} on button press/release."
+            )
+        else:
+            self.get_logger().info(
+                "Controller auto-activation DISABLED (auto_controller_activation is empty) — "
+                f"only '{FREEZE_CONTROLLER_NAME}' will be toggled on button press/release."
+            )
 
-        if self.arm_side not in ("left", "right", "both"):
-            self.get_logger().error(f"Invalid arm_side '{self.arm_side}', defaulting to 'both'")
-            self.arm_side = "both"
+        # --- Resolve pose_topics/pose_tf/target_topics: each enabled side ends up tracked via
+        # exactly one of arm_tf_frame or arm_ee_pose_topic — see module docstring. ---
+        self.topics_prefix: str = self.get_parameter("topics_prefix").value
+        pose_topics = self._get_string_array_param("pose_topics")
+        pose_tf = self._get_string_array_param("pose_tf")
+        target_topics = self._get_string_array_param("target_topics")
+        # Pad a shorter-than-SIDES override with "" ("unused at this index").
+        pose_topics += [""] * (len(SIDES) - len(pose_topics))
+        pose_tf += [""] * (len(SIDES) - len(pose_tf))
+        target_topics += [""] * (len(SIDES) - len(target_topics))
 
-        # --- Controller helper (created lazily on first deadman press) ---
-        self.controller_helper: DuaticControllerHelper | None = None
+        self.arm_tf_frame: dict[str, str] = {}
+        self.arm_ee_pose_topic: dict[str, str] = {}
+        self.arm_target_topic: dict[str, str] = {}
+        # Frame each side's target is published in — fixed at robot_base_frame for TF-mode
+        # sides, kept in sync with the incoming topic's frame_id by _ee_pose_cb() otherwise.
+        self.arm_pose_frame_id: dict[str, str] = {}
+        self._sides: list[str] = []
+        for i, side in enumerate(SIDES):
+            pose_topic = f"{self.topics_prefix}{pose_topics[i]}" if pose_topics[i] else ""
+            tf_frame = pose_tf[i]
+            is_tf = not pose_topic
+            source = tf_frame if is_tf else pose_topic
+
+            if not source:
+                self.get_logger().info(
+                    f"S570 {side} arm DISABLED (neither pose_topics[{i}] nor pose_tf[{i}] is "
+                    "set)."
+                )
+                continue
+
+            self._sides.append(side)
+            self.arm_target_topic[side] = f"{self.topics_prefix}{target_topics[i]}"
+            self.arm_pose_frame_id[side] = self.robot_base_frame
+            if is_tf:
+                self.arm_tf_frame[side] = tf_frame
+                self.get_logger().info(
+                    f"S570 {side} arm ENABLED — tracking tf '{tf_frame}', publishing target "
+                    f"to '{self.arm_target_topic[side]}'"
+                )
+            else:
+                self.arm_ee_pose_topic[side] = pose_topic
+                self.get_logger().info(
+                    f"S570 {side} arm ENABLED — tracking pose topic '{pose_topic}', "
+                    f"publishing target to '{self.arm_target_topic[side]}'"
+                )
+
+        if not self._sides:
+            self.get_logger().warn(
+                "No arms enabled — pose_topics and pose_tf are empty for both sides."
+            )
+
+        # --- Controller helper ---
+        # Created eagerly (not lazily on first deadman press) so its 0.1s discovery timer has
+        # time to populate before the first button press — otherwise that press could race
+        # discovery and get reported as "not found" in _activate_controllers(). Always
+        # created: freeze_controller is toggled on every press/release regardless of
+        # auto_controller_activation.
+        self.controller_helper = DuaticControllerHelper(self)
+        self.get_logger().info("Controller helper initialized.")
         self._controllers_switched = False
 
-        # --- TF listener for DynaArm EE pose lookup ---
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        # --- TF listener: EE pose lookup for TF-mode sides (_tf_poll_cb()), and/or the
+        # cross-frame self-collision check once both arms are active (_transform_position()) ---
+        if self.arm_tf_frame or len(self._sides) >= 2:
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self)
+        if self.arm_tf_frame:
+            self.create_timer(TF_POLL_PERIOD_SEC, self._tf_poll_cb)
 
         # --- S570 FK ---
         self.fk = S570FK()
@@ -208,10 +330,13 @@ class ElephantS570Node(Node):
 
         # --- Per-arm state ---
         self.arms: dict[str, S570ArmState] = {}
-        self._sides = ["left", "right"] if self.arm_side == "both" else [self.arm_side]
 
         for side in self._sides:
             self.arms[side] = S570ArmState(side)
+
+        # --- Pose-topic subscriptions for sides in pose-topic mode (see _ee_pose_cb()) ---
+        for side, topic in self.arm_ee_pose_topic.items():
+            self.create_subscription(PoseStamped, topic, partial(self._ee_pose_cb, side), 10)
 
         # Single combined joint_states topic (14 joints: 7 left + 7 right)
         self.create_subscription(JointState, "/teleop_arm/joint_states", self._joint_state_cb, 10)
@@ -235,15 +360,10 @@ class ElephantS570Node(Node):
         # --- Target pose publishers ---
         self.pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
-        if self.dual_arm_robot:
-            for side in self._sides:
-                topic = f"{self.target_topic_prefix}/{side}{self.target_topic_suffix}"
-                self.pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
-                self.get_logger().info(f"Publishing to {topic}")
-        else:
-            topic = f"{self.target_topic_prefix}{self.target_topic_suffix}"
-            self.pose_pubs[self._sides[0]] = self.create_publisher(PoseStamped, topic, 10)
-            self.get_logger().info(f"Publishing to {topic}")
+        for side in self._sides:
+            self.pose_pubs[side] = self.create_publisher(
+                PoseStamped, self.arm_target_topic[side], 10
+            )
 
         # --- Visualization markers ---
         # S570 FK end-effector marker (for S570 RViz — always published)
@@ -266,90 +386,114 @@ class ElephantS570Node(Node):
 
         self.visu_pose_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
-        if self.dual_arm_robot:
-            for side in self._sides:
-                topic = f"/visu/target_pose/{side}"
-                self.visu_pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
-        else:
-            self.visu_pose_pubs[self._sides[0]] = self.create_publisher(
-                PoseStamped, "/visu/target_pose", 10
-            )
+        for side in self._sides:
+            topic = f"/visu/target_pose/{side}"
+            self.visu_pose_pubs[side] = self.create_publisher(PoseStamped, topic, 10)
 
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
         self.log_counter = 0
 
-        self.get_logger().info(
-            f"Elephant S570 node ready — arm_side={self.arm_side}, "
-            f"dual_arm_robot={self.dual_arm_robot}"
-        )
+        self.get_logger().info("Elephant S570 node ready.")
         self.get_logger().info("Hold Button A on S570 to start teleop.")
 
         self.axis_pub = self.create_publisher(Marker, "/axis_lock_marker", 10)
 
+    def _get_string_array_param(self, name: str) -> list[str]:
+        """Like list(self.get_parameter(name).value), but tolerates a "-p name:=[]" override:
+        rcl can't infer STRING_ARRAY from zero elements, so it comes through as NOT_SET and
+        plain get_parameter() would raise ParameterUninitializedException even though this
+        parameter has a non-empty default. An explicitly-typed empty-array fallback via
+        get_parameter_or() resolves it correctly instead."""
+        empty = Parameter(name, Parameter.Type.STRING_ARRAY, [])
+        return list(self.get_parameter_or(name, empty).value)
+
     # ------------------------------------------------------------------ #
-    #  Controller switching                                               #
+    #  Controller switching                                              #
     # ------------------------------------------------------------------ #
 
     def _any_arm_active(self) -> bool:
         return any(arm.state == ControlState.CONTROL for arm in self.arms.values())
 
-    def _ensure_controller_helper(self) -> DuaticControllerHelper:
-        """Lazily create the controller helper on first use."""
-        if self.controller_helper is None:
-            self.controller_helper = DuaticControllerHelper(self)
-            self.get_logger().info("Controller helper initialized.")
-        return self.controller_helper
+    def _both_arms_active(self) -> bool:
+        """True only when every configured arm is simultaneously in CONTROL — the only case
+        self-collision avoidance in _compute_target_control() is meaningful for."""
+        return len(self.arms) >= 2 and all(
+            a.state == ControlState.CONTROL for a in self.arms.values()
+        )
+
+    def _get_auto_activate_names(self) -> list[str]:
+        """Controllers matching auto_controller_activation, or [] if that parameter is
+        empty (avoids get_all_controllers(matching_names=[]), which returns everything
+        unfiltered rather than nothing)."""
+        if not self.auto_controller_activation_names:
+            return []
+        return self.controller_helper.get_all_controllers(
+            matching_names=self.auto_controller_activation_names
+        )
 
     def _activate_controllers(self) -> None:
-        """Deactivate freeze, activate JTC for teleop."""
+        """Deactivate freeze_controller (always) and activate the auto_controller_activation
+        match(es), if any, for teleop.
+
+        Leaves _controllers_switched False (so a later call can retry) if discovery isn't
+        ready yet.
+        """
         if self._controllers_switched:
             return
 
-        helper = self._ensure_controller_helper()
-        jtc_names = helper.get_all_controllers(matching_names=["joint_trajectory_controller"])
-        freeze_names = helper.get_all_controllers(matching_names=["freeze_controller"])
-
-        if jtc_names:
-            self.controller_helper.switch_controller(
-                activate_controllers=jtc_names,
-                deactivate_controllers=freeze_names,
+        if not self.controller_helper.is_controller_data_ready():
+            self.get_logger().warn(
+                "Controller manager data not ready yet — skipping controller switch for now."
             )
-            self.get_logger().info(
-                f"Controllers: activating {jtc_names}, deactivating {freeze_names}"
-            )
-        else:
-            self.get_logger().warn("No joint_trajectory_controller found!")
+            return
 
+        freeze_names = self.controller_helper.get_all_controllers(
+            matching_names=[FREEZE_CONTROLLER_NAME]
+        )
+        auto_activate_names = self._get_auto_activate_names()
+        if self.auto_controller_activation_names and not auto_activate_names:
+            self.get_logger().warn(
+                f"No controller matching {self.auto_controller_activation_names} found!"
+            )
+
+        self.controller_helper.switch_controller(
+            activate_controllers=auto_activate_names,
+            deactivate_controllers=freeze_names,
+        )
+        self.get_logger().info(
+            f"Controllers: activating {auto_activate_names}, deactivating {freeze_names}"
+        )
         self._controllers_switched = True
 
     def _deactivate_controllers(self) -> None:
-        """Deactivate JTC, activate freeze."""
+        """Activate freeze_controller (always) and deactivate the auto_controller_activation
+        match(es), if any."""
         if not self._controllers_switched:
             return
-
-        helper = self._ensure_controller_helper()
-        jtc_names = helper.get_all_controllers(matching_names=["joint_trajectory_controller"])
-        freeze_names = helper.get_all_controllers(matching_names=["freeze_controller"])
-
-        if freeze_names:
-            self.controller_helper.switch_controller(
-                activate_controllers=freeze_names,
-                deactivate_controllers=jtc_names,
-            )
-            self.get_logger().info(
-                f"Controllers: activating {freeze_names}, deactivating {jtc_names}"
-            )
-
         self._controllers_switched = False
+
+        freeze_names = self.controller_helper.get_all_controllers(
+            matching_names=[FREEZE_CONTROLLER_NAME]
+        )
+        auto_activate_names = self._get_auto_activate_names()
+
+        self.controller_helper.switch_controller(
+            activate_controllers=freeze_names,
+            deactivate_controllers=auto_activate_names,
+        )
+        self.get_logger().info(
+            f"Controllers: activating {freeze_names}, deactivating {auto_activate_names}"
+        )
 
     # ------------------------------------------------------------------ #
     #  Callbacks                                                          #
     # ------------------------------------------------------------------ #
 
     def _joint_state_cb(self, msg: JointState) -> None:
-        """Split combined JointState (14 joints) into per-arm state, and — while
-        REPOSITION — keep both reference poses live."""
+        """Split combined JointState (14 joints) into per-arm state, and — while REPOSITION —
+        keep the arm-side reference pose live. The robot-side reference pose is refreshed
+        independently, by _tf_poll_cb() or _ee_pose_cb()."""
         joint_map = dict(zip(msg.name, msg.position))
 
         for side, arm in self.arms.items():
@@ -365,17 +509,38 @@ class ElephantS570Node(Node):
                 self._update_reference_pose(arm, side)
 
     def _update_reference_pose(self, arm: S570ArmState, side: str) -> None:
-        """While REPOSITION: continuously refresh both reference poses from live data."""
+        """While REPOSITION: continuously refresh the arm-side reference pose from live
+        joint data."""
         pos, quat = self.fk.compute(side, arm.current_joints)
         arm.arm_reference_pose = Pose6D(pos, quat)
 
-        tf_result = self._lookup_robot_ee_pose(side)
-        if tf_result is not None:
-            robot_pos, robot_quat = tf_result
-            arm.robot_reference_pose = Pose6D(robot_pos, robot_quat)
-        # else: TF failed this tick. robot_reference_pose is left as-is — None until the
-        # first successful lookup (on_control_activate() correctly refuses to activate until
-        # then), or its last successfully tracked value otherwise.
+    def _tf_poll_cb(self) -> None:
+        """Periodically refresh the robot-side reference pose for every TF-mode side, while
+        REPOSITION (frozen — like the pose-topic path below — while CONTROL)."""
+        for side in self.arm_tf_frame:
+            arm = self.arms[side]
+            if arm.state != ControlState.REPOSITION:
+                continue
+            result = self._lookup_robot_ee_pose(side)
+            if result is not None:
+                pos, quat = result
+                arm.robot_reference_pose = Pose6D(pos, quat)
+            # else: TF failed this tick. robot_reference_pose is left as-is — None until the
+            # first successful lookup (on_control_activate() correctly refuses to activate
+            # until then), or its last successfully tracked value otherwise.
+
+    def _ee_pose_cb(self, side: str, msg: PoseStamped) -> None:
+        """Pose-topic mode: refresh the robot-side reference pose from the latest message,
+        used exactly as received (no TF transform — its frame is remembered in
+        arm_pose_frame_id and published back unchanged, see module docstring), while
+        REPOSITION (frozen — like the TF path above — while CONTROL)."""
+        arm = self.arms[side]
+        if arm.state != ControlState.REPOSITION:
+            return
+
+        self.arm_pose_frame_id[side] = msg.header.frame_id or self.robot_base_frame
+        p, o = msg.pose.position, msg.pose.orientation
+        arm.robot_reference_pose = Pose6D(np.array([p.x, p.y, p.z]), np.array([o.w, o.x, o.y, o.z]))
 
     def _buttons_cb(self, msg: Joy) -> None:
         # The left-side buttons/axes are physically broken on this controller — mirror the
@@ -417,12 +582,7 @@ class ElephantS570Node(Node):
 
     def _lookup_robot_ee_pose(self, side: str) -> tuple[np.ndarray, np.ndarray] | None:
         """Try to get the current DynaArm EE pose via TF."""
-        # For dual-arm: arm_left/flange, arm_right/flange
-        # For single-arm: flange
-        if self.dual_arm_robot:
-            ee_frame = f"arm_{side}/{self.robot_ee_frame}"
-        else:
-            ee_frame = self.robot_ee_frame
+        ee_frame = self.arm_tf_frame[side]
 
         try:
             t = self.tf_buffer.lookup_transform(self.robot_base_frame, ee_frame, Time())
@@ -445,6 +605,38 @@ class ElephantS570Node(Node):
         except Exception as e:
             self.get_logger().warn(f"TF lookup {self.robot_base_frame} → {ee_frame} failed: {e}")
             return None
+
+    def _transform_position(
+        self, position: np.ndarray, from_frame: str, to_frame: str
+    ) -> np.ndarray | None:
+        """Transform a 3D point from from_frame into to_frame, for comparing two arms'
+        reference poses in self-collision avoidance even when tracked in different frames.
+        Returns `position` unchanged if the frames are the same name, or None if the TF
+        lookup between them fails."""
+        if from_frame == to_frame:
+            return position
+
+        try:
+            t = self.tf_buffer.lookup_transform(to_frame, from_frame, Time())
+        except Exception as e:
+            self.get_logger().warn(
+                f"Self-collision check: TF lookup {from_frame} → {to_frame} failed: {e}",
+                throttle_duration_sec=5.0,
+            )
+            return None
+
+        translation = np.array(
+            [t.transform.translation.x, t.transform.translation.y, t.transform.translation.z]
+        )
+        rotation = np.array(
+            [
+                t.transform.rotation.w,
+                t.transform.rotation.x,
+                t.transform.rotation.y,
+                t.transform.rotation.z,
+            ]
+        )
+        return _quat_rotate_vector(rotation, position) + translation
 
     def on_control_activate(self, arm: S570ArmState) -> bool:
         """REPOSITION -> CONTROL: freeze both reference poses.
@@ -505,8 +697,7 @@ class ElephantS570Node(Node):
             if not self.on_control_activate(arm):
                 return
 
-        R_robot = _quat_to_rotation_matrix(arm.robot_reference_pose.quat)
-        z_axis = R_robot[:, 2]
+        z_axis = _quat_rotate_vector(arm.robot_reference_pose.quat, np.array([0.0, 0.0, 1.0]))
         arm.axis_lock_axis = z_axis / np.linalg.norm(z_axis)
         arm.axis_lock_active = True
 
@@ -536,7 +727,7 @@ class ElephantS570Node(Node):
         pos = arm.robot_reference_pose.position
 
         marker = Marker()
-        marker.header.frame_id = self.robot_base_frame
+        marker.header.frame_id = self.arm_pose_frame_id.get(arm.side, self.robot_base_frame)
         marker.header.stamp = self.get_clock().now().to_msg()
 
         marker.ns = "axis_lock"
@@ -599,13 +790,12 @@ class ElephantS570Node(Node):
 
         # --- 6DoF twist: how far the arm has moved since activation, in its own base frame ---
         linear_diff = actual_pos - arm.arm_reference_pose.position
-        R_ref = _quat_to_rotation_matrix(arm.arm_reference_pose.quat)
-        R_actual = _quat_to_rotation_matrix(actual_quat)
-        angular_diff = _rotation_matrix_to_rotvec(R_actual @ R_ref.T)
+        relative_quat = _quat_multiply(actual_quat, _quat_conjugate(arm.arm_reference_pose.quat))
+        angular_diff = _quat_to_rotvec(relative_quat)
 
         # --- Scale ---
-        linear_diff = linear_diff * self.teleop_linear_scale
-        angular_diff = angular_diff * self.teleop_angular_scale
+        linear_diff = linear_diff * self.linear_acceleration
+        angular_diff = angular_diff * self.angular_acceleration
 
         if arm.axis_lock_active:
             # Only allow motion along the locked axis; orientation stays exactly at reference.
@@ -618,56 +808,65 @@ class ElephantS570Node(Node):
         if self.log_counter % 25 == 0:
             self.get_logger().info(f"{arm.side} — " f"target pos={target_pos.round(3).tolist()}, ")
 
-        # Add simple self collision avoidance
-        # End effectors cannot drive into base
-        if target_pos[0] <= 0.76:
-            target_pos[0] = 0.76
-        # End effectors cannot driver too close to each other
-        # Minimum allowed safe distance between end effectors
-        safe_distance = 0.4
-
-        # Check distance to other end effector
-        is_safe = True
-
         self.log_counter += 1
 
-        for other_side, other_arm in self.arms.items():
+        # Self collision avoidance — geometry assumptions tuned for a dual-arm robot with
+        # both arms active, so skip entirely otherwise.
+        if self._both_arms_active():
+            # End effectors cannot drive into base
+            if target_pos[0] <= 0.76:
+                target_pos[0] = 0.76
 
-            # Skip current arm (and any arm without a reference pose yet)
-            if other_side == side or other_arm.robot_reference_pose is None:
-                continue
+            # End effectors cannot get too close to each other.
+            # Minimum allowed safe distance between end effectors
+            safe_distance = 0.4
+            is_safe = True
+            frame_id = self.arm_pose_frame_id.get(side, self.robot_base_frame)
 
-            other_pos = other_arm.robot_reference_pose.position
+            for other_side, other_arm in self.arms.items():
 
-            if self.log_counter % 25 == 0:
-                self.get_logger().info(
-                    f"{arm.side} — " f"other pos={other_pos.round(3).tolist()}, "
+                # Skip current arm (and any arm without a reference pose yet)
+                if other_side == side or other_arm.robot_reference_pose is None:
+                    continue
+
+                # The other arm may be tracked in a different frame — bring it into this
+                # arm's own frame before comparing positions.
+                other_frame_id = self.arm_pose_frame_id.get(other_side, self.robot_base_frame)
+                other_pos = self._transform_position(
+                    other_arm.robot_reference_pose.position, other_frame_id, frame_id
                 )
+                if other_pos is None:
+                    continue  # TF unavailable this tick — skip rather than risk a false trip
 
-            # 3D Euclidean distance
-            old_distance = np.linalg.norm(arm.robot_reference_pose.position - other_pos)
-            new_distance = np.linalg.norm(target_pos - other_pos)
+                if self.log_counter % 25 == 0:
+                    self.get_logger().info(
+                        f"{arm.side} — " f"other pos={other_pos.round(3).tolist()}, "
+                    )
 
-            if self.log_counter % 25 == 0:
-                self.get_logger().info(f"resulting distance ={new_distance.round(3)}, ")
+                # 3D Euclidean distance
+                old_distance = np.linalg.norm(arm.robot_reference_pose.position - other_pos)
+                new_distance = np.linalg.norm(target_pos - other_pos)
 
-            if new_distance < safe_distance:
-                if new_distance < old_distance:
-                    if self.log_counter % 25 == 0:
-                        self.get_logger().error("Too close, movement not allowed")
-                    is_safe = False
-                else:
-                    if self.log_counter % 25 == 0:
-                        self.get_logger().error(
-                            "Already too close, but moving away from each other allowed"
-                        )
-                    is_safe = True
+                if self.log_counter % 25 == 0:
+                    self.get_logger().info(f"resulting distance ={new_distance.round(3)}, ")
 
-        # Only apply movement if safe. No previous target yet (e.g. first cycle after
-        # activation) means there's nothing safe to fall back to — use the computed target
-        # rather than crash downstream on a None position.
-        if not is_safe and arm.prev_target_pos is not None:
-            target_pos = arm.prev_target_pos
+                if new_distance < safe_distance:
+                    if new_distance < old_distance:
+                        if self.log_counter % 25 == 0:
+                            self.get_logger().error("Too close, movement not allowed")
+                        is_safe = False
+                    else:
+                        if self.log_counter % 25 == 0:
+                            self.get_logger().error(
+                                "Already too close, but moving away from each other allowed"
+                            )
+                        is_safe = True
+
+            # Only apply movement if safe. No previous target yet (e.g. first cycle after
+            # activation) means there's nothing safe to fall back to — use the computed
+            # target rather than crash downstream on a None position.
+            if not is_safe and arm.prev_target_pos is not None:
+                target_pos = arm.prev_target_pos
 
         arm.prev_target_pos = target_pos
 
@@ -729,18 +928,9 @@ class ElephantS570Node(Node):
         teleop method) — the default remapping-deltas control path doesn't need this at all
         (see _compute_target_control()).
         """
-        # teleop basis
-        x_t = np.array([1, 0, 0])
-        y_t = np.array([0, 1, 0])
-
-        # desired robot axes expressed in teleop frame
-        z_r = -x_t  # teleop x → robot z
-        y_r = y_t  # teleop z → robot y
-        x_r = np.cross(y_r, z_r)  # enforce right-handed system
-
-        # build rotation matrix (columns = robot axes in teleop frame)
-        R_offset = np.column_stack((x_r, y_r, z_r))
-        q_offset = _rotvec_to_quat(_rotation_matrix_to_rotvec(R_offset))
+        # Axis correspondence: teleop x -> robot z, teleop z -> robot -x, teleop y unchanged.
+        # That's a fixed -90 degree rotation about the (shared) Y axis.
+        q_offset = _rotvec_to_quat(np.array([0.0, -np.pi / 2, 0.0]))
 
         return _quat_multiply(q_offset, quat_wxyz)
 
@@ -775,10 +965,13 @@ class ElephantS570Node(Node):
                 continue
 
             pos, quat = result
+            # robot_base_frame for TF mode; the subscribed topic's own frame for pose-topic
+            # mode (see _ee_pose_cb()).
+            frame_id = self.arm_pose_frame_id.get(side, self.robot_base_frame)
 
             msg = PoseStamped()
             msg.header.stamp = stamp
-            msg.header.frame_id = self.robot_base_frame
+            msg.header.frame_id = frame_id
             msg.pose.position.x = float(pos[0])
             msg.pose.position.y = float(pos[1])
             msg.pose.position.z = float(pos[2])
@@ -796,7 +989,7 @@ class ElephantS570Node(Node):
                 ros_msg = {
                     "header": {
                         "stamp": {"sec": int(stamp.sec), "nanosec": int(stamp.nanosec)},
-                        "frame_id": self.robot_base_frame,
+                        "frame_id": frame_id,
                     },
                     "pose": {
                         "position": {"x": float(pos[0]), "y": float(pos[1]), "z": float(pos[2])},
@@ -838,9 +1031,7 @@ class ElephantS570Node(Node):
 
             self.pose_pubs[side].publish(msg)
 
-            self._publish_pose_markers(
-                self._target_marker_pub, msg, self.robot_base_frame, f"target_{side}_"
-            )
+            self._publish_pose_markers(self._target_marker_pub, msg, frame_id, f"target_{side}_")
 
     def _publish_urdf_joints(self, stamp) -> None:
         """Republish current joint angles with URDF joint names for visualization."""
@@ -891,7 +1082,7 @@ class ElephantS570Node(Node):
         p = pose_stamped.pose.position
         q = pose_stamped.pose.orientation
         origin = np.array([p.x, p.y, p.z])
-        R = _quat_to_rotation_matrix(np.array([q.w, q.x, q.y, q.z]))
+        quat = np.array([q.w, q.x, q.y, q.z])
 
         # Sphere
         sphere = Marker()
@@ -913,7 +1104,7 @@ class ElephantS570Node(Node):
             (np.array([0, 0, 1]), (0.0, 0.0, 1.0), 1004),  # Z blue
         ]
         for axis_vec, color, mid in axes:
-            end = origin + R @ axis_vec * 0.1
+            end = origin + _quat_rotate_vector(quat, axis_vec) * 0.1
             arrow = Marker()
             arrow.header.frame_id = frame
             arrow.header.stamp = stamp
