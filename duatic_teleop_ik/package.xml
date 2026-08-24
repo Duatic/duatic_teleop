@@ -8,7 +8,7 @@
     Subscribes to Cartesian PoseStamped commands and streams smooth JointTrajectory messages.
   </description>
   <maintainer email="tschwarzer@duatic.com">Timo Schwarzer</maintainer>
-  <license>DCL-1</license>
+  <license>BSD 3-Clause</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
