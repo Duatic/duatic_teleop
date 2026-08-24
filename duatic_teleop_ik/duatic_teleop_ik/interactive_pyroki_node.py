@@ -139,14 +139,7 @@ class InteractivePyrokiNode(Node):
         self.previous_target_pose = None
 
     def setup(self):
-        """Blocking robot detection + solver setup.
-
-        Must be called on the main thread, before rclpy.spin(node) starts (see main()).
-        DuaticRobotsHelper.wait_for_robot() spins this node internally (rclpy.spin_once);
-        rclpy explicitly forbids spinning the same node from multiple threads at once, so
-        this whole method has to run to completion *before* the node is handed to
-        rclpy.spin() — never concurrently with it (e.g. from a background thread).
-        """
+        """Blocking robot detection + solver setup."""
         self.get_logger().info("Waiting for robot detection...")
         self.robots_helper.wait_for_robot()
 
@@ -187,16 +180,11 @@ class InteractivePyrokiNode(Node):
         # Setup trajectory publishers
         self._setup_publishers(arm_names, hip_names)
 
-        # Wait for the URDF (description_cb() just caches it — see there for why solver init
-        # doesn't happen inline in that callback). Still nobody is spinning this node yet
-        # (rclpy.spin(node) only starts after setup() returns, see main()), so keep servicing
-        # callbacks ourselves here instead of a plain time.sleep(), or description_cb() would
-        # never run and this would hang forever.
+        # Wait for description_cb() to set self._urdf_data
         while self._urdf_data is None and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.1)
 
-        # arm_states (built above) is guaranteed ready now, so the solver/masks can be built
-        # unconditionally.
+        # arm_states is populated above, so the solver/masks can now be built.
         self._initialize_solver(self._urdf_data)
 
     def _setup_publishers(self, arm_names, hip_names):
@@ -235,13 +223,8 @@ class InteractivePyrokiNode(Node):
                 )
 
     def description_cb(self, msg):
-        """Cache the robot_description URDF; setup() builds the solver once it's ready.
-
-        Solver construction needs arm_states to already be populated, which setup() only
-        guarantees once it reaches the point where it waits for this callback — so actual
-        initialization is deferred to _initialize_solver(), called from setup(), instead of
-        happening inline here.
-        """
+        """Cache the URDF; setup() builds the solver once arm_states is populated and it's
+        waiting on this callback (see _initialize_solver())."""
         if self.solver is not None:
             return
         self._urdf_data = msg.data
@@ -283,8 +266,7 @@ class InteractivePyrokiNode(Node):
                 # Multi-arm: this arm's joints + optionally hip
                 mask = np.zeros(n, dtype=np.float32)
                 indices = []
-                # exclude clamp joints because not controlled via JointTrajectoryController
-                # give error otherwise because mismatch of number joints given and expected
+                # Clamp joints aren't controlled via JointTrajectoryController.
                 excluded_joints = {
                     "arm_left/clamp_left_finger_joint",
                     "arm_right/clamp_right_finger_joint",
@@ -630,13 +612,8 @@ class InteractivePyrokiNode(Node):
             for i, idx in enumerate(arm.joint_indices):
                 full_cfg[idx] = arm.smoothed_arm_q[i]
 
-        # Compute full-body velocities
-        # comment out, because not used anyways for now
-        # otherwise add it as second argument to _split_and_publish
-        # if self.last_full_q is not None:
-        #     velocities = (full_cfg - self.last_full_q) / dt
-        # else:
-        #     velocities = np.zeros_like(full_cfg)
+        # Full-body velocities aren't used here (unlike whole_body mode below) — could be
+        # passed as a 2nd arg to _split_and_publish() if ever needed.
 
         self.last_full_q = full_cfg.copy()
         self.last_time = current_time
@@ -691,15 +668,12 @@ def main(args=None):
     rclpy.init(args=args)
     node = InteractivePyrokiNode()
 
-    # setup() spins the node itself (via DuaticRobotsHelper.wait_for_robot() and the URDF
-    # wait) to run robot detection to completion. That MUST happen before rclpy.spin(node)
-    # starts below — rclpy explicitly forbids spinning the same node from two threads at
-    # once, so this can't run concurrently with it (e.g. from a background thread).
+    # setup() spins the node itself for robot detection, so it must finish before
+    # rclpy.spin(node) below — rclpy forbids spinning one node from two threads at once.
     node.setup()
 
-    # main_loop() itself never spins the node (only rclpy.spin() below does) — it just reads
-    # already-synchronized state and publishes, so it's safe to run on its own thread
-    # alongside rclpy.spin(node).
+    # main_loop() never spins the node itself, just reads synced state and publishes, so
+    # it's safe to run on its own thread alongside rclpy.spin(node) below.
     node.control_thread = threading.Thread(target=node.main_loop, daemon=True)
     node.control_thread.start()
 

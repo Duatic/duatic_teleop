@@ -1,88 +1,29 @@
 #!/usr/bin/env python3
 """ROS 2 Node for teleoperation using the Elephant Robotics MyController S570.
 
-Subscribes to S570 joint states published via rosbridge by the Windows publisher and
-publishes PoseStamped targets for the IK solver (interactive_pyroki_node).
-
-Each arm runs its own two-state state machine:
-  - REPOSITION: the arm's and the robot's current Cartesian poses (position + quaternion)
-    are continuously tracked as "reference poses". Nothing is published as a target.
-  - CONTROL: entered on deadman press (or, on the right arm, axis-lock activation), via
-    on_control_activate(). Both reference poses are frozen at that instant. Every control
-    cycle after that, the arm's ACTUAL pose (still updated live) is compared to its frozen
-    reference pose as a 6DoF twist (linear + angular difference), scaled (by
-    'linear_acceleration' / 'angular_acceleration'), and added directly onto the frozen
-    robot reference pose to produce the target.
-  - On deadman release, the arm returns to REPOSITION and stops publishing target poses.
-
-On deadman press: deactivates freeze_controller, activates the controllers matching
-'auto_controller_activation' (joint_trajectory_controller by default).
-On deadman release: deactivates those controllers, activates freeze_controller.
-freeze_controller is always toggled this way, regardless of 'auto_controller_activation'; if
-that parameter is empty, it's just the only controller switched on button press/release.
-
-Each arm is independently controlled via a deadman switch (Button A on each side).
-Hold A to teleop, release to stop.
-
-The right arm also has an axis-lock mode (a separate button): once the robot's tracked
-orientation has settled, activating it calls on_control_activate() the same way the deadman
-does (a no-op if CONTROL was already entered via the deadman), then additionally locks
-translation to a single axis (the robot EE's local Z axis at that instant) and freezes
-orientation for the duration of the lock.
+Each arm: REPOSITION (live reference poses) <-> CONTROL (deadman-held; frozen poses; the
+live-vs-frozen twist, scaled, applied onto the frozen robot pose; right arm's axis-lock
+additionally freezes orientation and restricts motion to the robot EE's local Z axis).
+Button press/release swaps freeze_controller with any auto_controller_activation match.
 
 Parameters:
-    robot_base_frame:       TF frame the robot's per-arm reference poses are tracked
-                             relative to (looked up as robot_base_frame -> pose_tf[i], see
-                             pose_topics/pose_tf below), and the frame_id stamped on every
-                             published target/visualization pose.
-                             (default: "base_link")
-    auto_controller_activation: List of controller-name substrings to match for the
-                             controller(s) automatically activated on button press (and
-                             deactivated on release), swapping with freeze_controller the
-                             other way. Matching is delegated to
-                             DuaticControllerHelper.get_all_controllers(). If empty, no
-                             extra controller is activated/deactivated — freeze_controller
-                             is still toggled on every button press/release regardless.
-                             (default: ["joint_trajectory_controller"] — this node's
-                             historical, hardcoded behavior)
-    linear_acceleration:     Gain applied to the arm's linear motion (default: 1.0)
-    angular_acceleration:    Gain applied to the arm's angular motion (default: 1.0)
-    topics_prefix:           Prepended (plain string concatenation) to every non-empty entry
-                             of pose_topics and target_topics below, and to the per-side
-                             visualization topic ("/visu/target_pose/<side>"), e.g. for
-                             namespacing every topic this node touches at once.
-                             (default: "/cartesian_pose_controller/target_pose")
-    pose_topics, pose_tf, target_topics:
-                             Index-matched (index 0 = left arm, index 1 = right; a shorter
-                             override is padded with ""). At index i, the reference pose
-                             comes from pose_topics[i] if non-empty — a PoseStamped topic,
-                             used as-is in whatever frame it publishes — otherwise from a TF
-                             lookup of pose_tf[i] relative to robot_base_frame. Set the
-                             unused one of the pair to "". If both are "", that side is
-                             disabled (target_topics[i] then unused). target_topics[i] is
-                             the topic the computed target is published to (after
-                             topics_prefix); stamped robot_base_frame for TF mode, or
-                             pose_topics[i]'s own frame_id for pose-topic mode.
-                             (default: pose_topics=["", ""] (TF for both arms), pose_tf=
-                             ["arm_left/flange", "arm_right/flange"], target_topics=
-                             ["/left", "/right"] — this node's historical, hardcoded
-                             dual-arm/TF-tracked configuration, publishing to
-                             "/cartesian_pose_controller/target_pose/left" and ".../right")
+    robot_base_frame:            TF frame reference poses are tracked relative to.
+    auto_controller_activation:  Controller filter auto-switched on button press
+                                  (default: ["joint_trajectory_controller"]).
+    linear_acceleration:         Gain on linear motion (default: 1.0).
+    angular_acceleration:        Gain on angular motion (default: 1.0).
+    button_mirror_mode:          ButtonMirrorMode value: "independent" (default), or
+                                  "mirror_right_to_left"/"mirror_left_to_right" to duplicate
+                                  one side's raw buttons+axes onto the other.
+    topics_prefix:               Prepended to pose_topics/target_topics/visu topics.
+    pose_topics/pose_tf/target_topics:
+                                  Index-matched left/right; each side tracks pose_topics[i]
+                                  if set, else TF pose_tf[i], else is disabled; publishes
+                                  to target_topics[i]. Defaults reproduce the original
+                                  dual-arm/TF setup.
 
-Button mapping (per S570 arm):
-    A (hold):  Deadman switch — teleop active while held
-    B, C, D:   Free (future: gripper, mode switch, etc.)
-    Joystick:  Free (future: speed scaling, etc.)
-
-Usage:
-    ros2 run elephant_s570 elephant_s570_node
-    # Left arm only (right disabled):
-    ros2 run elephant_s570 elephant_s570_node --ros-args -p pose_tf:="['arm_left/flange', '']"
-    # Right arm only, on a single-arm robot (EE frame is just "flange", no "arm_right/" prefix):
-    ros2 run elephant_s570 elephant_s570_node --ros-args -p pose_tf:="['', 'flange']"
-    # Right arm tracked from a pose topic instead of TF:
-    ros2 run elephant_s570 elephant_s570_node --ros-args \\
-        -p pose_topics:="['', '/some/pose_topic']" -p pose_tf:="['arm_left/flange', '']"
+Buttons: A (hold) = deadman; right side also has an axis-lock button.
+Usage: ros2 run elephant_s570 elephant_s570_node [--ros-args -p pose_tf:="['', 'flange']"]
 """
 
 from dataclasses import dataclass
@@ -174,6 +115,15 @@ class ControlState(Enum):
     CONTROL = auto()  # reference poses frozen; publishing twist-derived targets
 
 
+class ButtonMirrorMode(Enum):
+    """How _buttons_cb() combines the left/right raw button+axis values before dispatching
+    to each side — see the 'button_mirror_mode' parameter in the module docstring."""
+
+    INDEPENDENT = "independent"
+    MIRROR_RIGHT_TO_LEFT = "mirror_right_to_left"
+    MIRROR_LEFT_TO_RIGHT = "mirror_left_to_right"
+
+
 @dataclass
 class Pose6D:
     """Cartesian pose: position (3,) + unit quaternion [w, x, y, z] (4,)."""
@@ -215,6 +165,8 @@ class ElephantS570Node(Node):
         self.declare_parameter("angular_acceleration", 1.0)
         # Controller(s) auto-activated/deactivated on button press — see module docstring.
         self.declare_parameter("auto_controller_activation", ["joint_trajectory_controller"])
+        # One of ButtonMirrorMode's values — see module docstring.
+        self.declare_parameter("button_mirror_mode", ButtonMirrorMode.INDEPENDENT.value)
         # Index-matched (index 0 = left, index 1 = right) — see module docstring.
         self.declare_parameter("topics_prefix", "/cartesian_pose_controller/target_pose")
         self.declare_parameter("pose_topics", ["", ""])
@@ -301,6 +253,19 @@ class ElephantS570Node(Node):
                     f"publishing target to '{self.arm_target_topic[side]}'"
                 )
 
+        left_topic = self.arm_target_topic.get("left")
+        right_topic = self.arm_target_topic.get("right")
+        if left_topic is not None and left_topic == right_topic:
+            self.get_logger().error(
+                f"left and right target_topics both resolve to '{left_topic}' — disabling "
+                "the right arm."
+            )
+            self._sides.remove("right")
+            self.arm_target_topic.pop("right", None)
+            self.arm_pose_frame_id.pop("right", None)
+            self.arm_tf_frame.pop("right", None)
+            self.arm_ee_pose_topic.pop("right", None)
+
         if not self._sides:
             self.get_logger().warn(
                 "No arms enabled — pose_topics and pose_tf are empty for both sides."
@@ -351,8 +316,20 @@ class ElephantS570Node(Node):
         #   buttons[4-7] = Right A, B, C, D
         #   axes[0-1]    = Left  Joystick X, Y
         #   axes[2-3]    = Right Joystick X, Y
-        # The left-side buttons/axes are physically broken, so _buttons_cb() mirrors the
-        # right-side values into the left-side slots before handling each side individually.
+        # button_mirror_mode controls how _buttons_cb() combines these before dispatching to
+        # each side — see ButtonMirrorMode / module docstring.
+        try:
+            self.button_mirror_mode = ButtonMirrorMode(
+                self.get_parameter("button_mirror_mode").value
+            )
+        except ValueError:
+            invalid = self.get_parameter("button_mirror_mode").value
+            valid = [m.value for m in ButtonMirrorMode]
+            self.button_mirror_mode = ButtonMirrorMode.INDEPENDENT
+            self.get_logger().error(
+                f"Invalid button_mirror_mode '{invalid}' (must be one of {valid}); "
+                f"defaulting to '{self.button_mirror_mode.value}'."
+            )
         self._deadman_button_index = {"left": 0, "right": 4, "grasp": 5}
         self._axis_lock_button_index = {"right": 5}
         self._joy_axes: list[float] = []
@@ -392,7 +369,6 @@ class ElephantS570Node(Node):
 
         # --- Publish timer (50 Hz) ---
         self.create_timer(0.02, self._publish_targets)
-        self.log_counter = 0
 
         self.get_logger().info("Elephant S570 node ready.")
         self.get_logger().info("Hold Button A on S570 to start teleop.")
@@ -471,7 +447,6 @@ class ElephantS570Node(Node):
         match(es), if any."""
         if not self._controllers_switched:
             return
-        self._controllers_switched = False
 
         freeze_names = self.controller_helper.get_all_controllers(
             matching_names=[FREEZE_CONTROLLER_NAME]
@@ -485,6 +460,7 @@ class ElephantS570Node(Node):
         self.get_logger().info(
             f"Controllers: activating {freeze_names}, deactivating {auto_activate_names}"
         )
+        self._controllers_switched = False
 
     # ------------------------------------------------------------------ #
     #  Callbacks                                                          #
@@ -543,15 +519,18 @@ class ElephantS570Node(Node):
         arm.robot_reference_pose = Pose6D(np.array([p.x, p.y, p.z]), np.array([o.w, o.x, o.y, o.z]))
 
     def _buttons_cb(self, msg: Joy) -> None:
-        # The left-side buttons/axes are physically broken on this controller — mirror the
-        # right-side raw values into the left-side slots up front, so every side below can be
-        # handled individually/symmetrically instead of special-casing "left".
         buttons = list(msg.buttons)
         axes = list(msg.axes)
-        if len(buttons) >= 8:
-            buttons[0:4] = buttons[4:8]
-        if len(axes) >= 4:
-            axes[0:2] = axes[2:4]
+        if self.button_mirror_mode == ButtonMirrorMode.MIRROR_RIGHT_TO_LEFT:
+            if len(buttons) >= 8:
+                buttons[0:4] = buttons[4:8]
+            if len(axes) >= 4:
+                axes[0:2] = axes[2:4]
+        elif self.button_mirror_mode == ButtonMirrorMode.MIRROR_LEFT_TO_RIGHT:
+            if len(buttons) >= 8:
+                buttons[4:8] = buttons[0:4]
+            if len(axes) >= 4:
+                axes[2:4] = axes[0:2]
         self._joy_axes = axes  # not consumed yet — reserved for future speed scaling etc.
 
         for side, arm in self.arms.items():
@@ -685,14 +664,12 @@ class ElephantS570Node(Node):
             self.get_logger().warn(f"[{arm.side}] Axis lock: no reference pose yet.")
             return
 
-        # 👉 Warten bis stabil
+        # Wait until stable before locking.
         if not self._is_orientation_stable(arm, arm.robot_reference_pose.quat):
             self.get_logger().info("Waiting for stable orientation...", throttle_duration_sec=1.0)
             return
 
-        # 👉 Jetzt erst locken — reuse the deadman's own activation/calibration if it hasn't
-        # already happened (e.g. axis lock pressed without holding the deadman); if CONTROL
-        # was already entered via the deadman, just add the lock on top of it.
+        # Reuse the deadman's activation if it hasn't happened yet; else just add the lock.
         if arm.state != ControlState.CONTROL:
             if not self.on_control_activate(arm):
                 return
@@ -758,6 +735,8 @@ class ElephantS570Node(Node):
     def _deactivate_axis_lock(self, arm: S570ArmState) -> None:
         arm.axis_lock_active = False
         arm.axis_lock_axis = None
+        arm.prev_quat = None
+        arm.stable_counter = 0
 
         self.get_logger().info(f"[{arm.side}] Axis lock DEACTIVATED")
 
@@ -805,10 +784,9 @@ class ElephantS570Node(Node):
         # --- Add onto the frozen robot reference pose ---
         target_pos = arm.robot_reference_pose.position + linear_diff
 
-        if self.log_counter % 25 == 0:
-            self.get_logger().info(f"{arm.side} — " f"target pos={target_pos.round(3).tolist()}, ")
-
-        self.log_counter += 1
+        self.get_logger().info(
+            f"{arm.side} — target pos={target_pos.round(3).tolist()}", throttle_duration_sec=0.5
+        )
 
         # Self collision avoidance — geometry assumptions tuned for a dual-arm robot with
         # both arms active, so skip entirely otherwise.
@@ -838,29 +816,28 @@ class ElephantS570Node(Node):
                 if other_pos is None:
                     continue  # TF unavailable this tick — skip rather than risk a false trip
 
-                if self.log_counter % 25 == 0:
-                    self.get_logger().info(
-                        f"{arm.side} — " f"other pos={other_pos.round(3).tolist()}, "
-                    )
-
                 # 3D Euclidean distance
                 old_distance = np.linalg.norm(arm.robot_reference_pose.position - other_pos)
                 new_distance = np.linalg.norm(target_pos - other_pos)
-
-                if self.log_counter % 25 == 0:
-                    self.get_logger().info(f"resulting distance ={new_distance.round(3)}, ")
+                self.get_logger().info(
+                    f"{arm.side} — other pos={other_pos.round(3).tolist()}, "
+                    f"resulting distance={new_distance.round(3)}",
+                    throttle_duration_sec=0.5,
+                )
 
                 if new_distance < safe_distance:
                     if new_distance < old_distance:
-                        if self.log_counter % 25 == 0:
-                            self.get_logger().error("Too close, movement not allowed")
+                        self.get_logger().error(
+                            "Too close, movement not allowed", throttle_duration_sec=0.5
+                        )
+                        # A violation from any other arm blocks this cycle; don't let a later,
+                        # unrelated arm's "safe" verdict clear it.
                         is_safe = False
                     else:
-                        if self.log_counter % 25 == 0:
-                            self.get_logger().error(
-                                "Already too close, but moving away from each other allowed"
-                            )
-                        is_safe = True
+                        self.get_logger().error(
+                            "Already too close, but moving away from each other allowed",
+                            throttle_duration_sec=0.5,
+                        )
 
             # Only apply movement if safe. No previous target yet (e.g. first cycle after
             # activation) means there's nothing safe to fall back to — use the computed
@@ -969,16 +946,7 @@ class ElephantS570Node(Node):
             # mode (see _ee_pose_cb()).
             frame_id = self.arm_pose_frame_id.get(side, self.robot_base_frame)
 
-            msg = PoseStamped()
-            msg.header.stamp = stamp
-            msg.header.frame_id = frame_id
-            msg.pose.position.x = float(pos[0])
-            msg.pose.position.y = float(pos[1])
-            msg.pose.position.z = float(pos[2])
-            msg.pose.orientation.w = float(quat[0])
-            msg.pose.orientation.x = float(quat[1])
-            msg.pose.orientation.y = float(quat[2])
-            msg.pose.orientation.z = float(quat[3])
+            msg = self._make_pose_msg(stamp, frame_id, pos, quat)
 
             if side in self.visu_pose_pubs:
                 self.visu_pose_pubs[side].publish(msg)
@@ -1059,19 +1027,25 @@ class ElephantS570Node(Node):
             if arm.current_joints is None:
                 continue
             pos, quat = self.fk.compute(side, arm.current_joints)
-            msg = PoseStamped()
-            msg.header.stamp = stamp
-            msg.header.frame_id = self.robot_base_frame
-            msg.pose.position.x = float(pos[0])
-            msg.pose.position.y = float(pos[1])
-            msg.pose.position.z = float(pos[2])
-            msg.pose.orientation.w = float(quat[0])
-            msg.pose.orientation.x = float(quat[1])
-            msg.pose.orientation.y = float(quat[2])
-            msg.pose.orientation.z = float(quat[3])
+            msg = self._make_pose_msg(stamp, self.robot_base_frame, pos, quat)
             self._publish_pose_markers(
                 self._s570_marker_pub, msg, self.robot_base_frame, f"fk_{side}_"
             )
+
+    @staticmethod
+    def _make_pose_msg(stamp, frame_id: str, pos: np.ndarray, quat: np.ndarray) -> PoseStamped:
+        """Build a PoseStamped from a position + quaternion [w, x, y, z] array pair."""
+        msg = PoseStamped()
+        msg.header.stamp = stamp
+        msg.header.frame_id = frame_id
+        msg.pose.position.x = float(pos[0])
+        msg.pose.position.y = float(pos[1])
+        msg.pose.position.z = float(pos[2])
+        msg.pose.orientation.w = float(quat[0])
+        msg.pose.orientation.x = float(quat[1])
+        msg.pose.orientation.y = float(quat[2])
+        msg.pose.orientation.z = float(quat[3])
+        return msg
 
     def _publish_pose_markers(
         self, publisher, pose_stamped: PoseStamped, frame: str, ns_prefix: str
