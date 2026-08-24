@@ -55,6 +55,7 @@ from enum import Enum, auto
 from functools import partial
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -84,56 +85,6 @@ SIDES = ("left", "right")
 TF_POLL_PERIOD_SEC = 0.05
 
 
-def _quat_conjugate(q_wxyz: np.ndarray) -> np.ndarray:
-    """Conjugate (= inverse, for a unit quaternion) of [w, x, y, z]."""
-    w, x, y, z = q_wxyz
-    return np.array([w, -x, -y, -z])
-
-
-def _quat_to_rotvec(q_wxyz: np.ndarray) -> np.ndarray:
-    """Unit quaternion [w, x, y, z] -> rotation vector (axis * angle), directly —
-    no rotation matrix round-trip needed."""
-    w, x, y, z = q_wxyz
-    v = np.array([x, y, z])
-    v_norm = np.linalg.norm(v)
-    if v_norm < 1e-8:
-        return np.zeros(3)
-    angle = 2.0 * np.arctan2(v_norm, w)
-    return (v / v_norm) * angle
-
-
-def _quat_rotate_vector(q_wxyz: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """Rotate 3-vector v by unit quaternion [w, x, y, z] (no rotation matrix needed)."""
-    w, x, y, z = q_wxyz
-    q_vec = np.array([x, y, z])
-    t = 2.0 * np.cross(q_vec, v)
-    return v + w * t + np.cross(q_vec, t)
-
-
-def _rotvec_to_quat(rotvec: np.ndarray) -> np.ndarray:
-    """Rotation vector (axis * angle) -> unit quaternion [w, x, y, z]."""
-    angle = np.linalg.norm(rotvec)
-    if angle < 1e-8:
-        return np.array([1.0, 0.0, 0.0, 0.0])
-    axis = rotvec / angle
-    half = angle / 2.0
-    return np.array([np.cos(half), *(axis * np.sin(half))])
-
-
-def _quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    """Hamilton product of two quaternions [w, x, y, z]."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return np.array(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ]
-    )
-
-
 class ControlState(Enum):
     REPOSITION = auto()  # tracking reference poses live; nothing published
     CONTROL = auto()  # reference poses frozen; publishing twist-derived targets
@@ -150,7 +101,7 @@ class ButtonMirrorMode(Enum):
 
 @dataclass
 class Pose6D:
-    """Cartesian pose: position (3,) + unit quaternion [w, x, y, z] (4,)."""
+    """Cartesian pose: position (3,) + unit quaternion [x, y, z, w] (4,)."""
 
     position: np.ndarray
     quat: np.ndarray
@@ -172,7 +123,7 @@ class S570ArmState:
         # Axis lock (right arm only, folded into the CONTROL state — see on_control_activate())
         self.axis_lock_active = False
         self.axis_lock_axis: np.ndarray | None = None  # locked axis, in robot/base frame
-        self.prev_quat: np.ndarray | None = None  # for the orientation-stability gate
+        self.prev_quat: np.ndarray | None = None  # [x, y, z, w], for the orientation-stability gate
         self.stable_counter = 0
 
         # Self-collision-avoidance fallback (see _compute_target_control)
@@ -540,7 +491,7 @@ class ElephantS570Node(Node):
 
         self.arm_pose_frame_id[side] = msg.header.frame_id or self.robot_base_frame
         p, o = msg.pose.position, msg.pose.orientation
-        arm.robot_reference_pose = Pose6D(np.array([p.x, p.y, p.z]), np.array([o.w, o.x, o.y, o.z]))
+        arm.robot_reference_pose = Pose6D(np.array([p.x, p.y, p.z]), np.array([o.x, o.y, o.z, o.w]))
 
     def _buttons_cb(self, msg: Joy) -> None:
         buttons = list(msg.buttons)
@@ -584,7 +535,10 @@ class ElephantS570Node(Node):
     # ------------------------------------------------------------------ #
 
     def _lookup_robot_ee_pose(self, side: str) -> tuple[np.ndarray, np.ndarray] | None:
-        """Try to get the current DynaArm EE pose via TF."""
+        """Try to get the current DynaArm EE pose via TF.
+
+        Returns (position[3], quaternion [x, y, z, w][4]) or None.
+        """
         ee_frame = self.arm_tf_frame[side]
 
         try:
@@ -598,10 +552,10 @@ class ElephantS570Node(Node):
             )
             quat = np.array(
                 [
-                    t.transform.rotation.w,
                     t.transform.rotation.x,
                     t.transform.rotation.y,
                     t.transform.rotation.z,
+                    t.transform.rotation.w,
                 ]
             )
             return pos, quat
@@ -631,15 +585,15 @@ class ElephantS570Node(Node):
         translation = np.array(
             [t.transform.translation.x, t.transform.translation.y, t.transform.translation.z]
         )
-        rotation = np.array(
+        rotation = Rotation.from_quat(
             [
-                t.transform.rotation.w,
                 t.transform.rotation.x,
                 t.transform.rotation.y,
                 t.transform.rotation.z,
+                t.transform.rotation.w,
             ]
         )
-        return _quat_rotate_vector(rotation, position) + translation
+        return rotation.apply(position) + translation
 
     def on_control_activate(self, arm: S570ArmState) -> bool:
         """REPOSITION -> CONTROL: freeze both reference poses.
@@ -698,7 +652,7 @@ class ElephantS570Node(Node):
             if not self.on_control_activate(arm):
                 return
 
-        z_axis = _quat_rotate_vector(arm.robot_reference_pose.quat, np.array([0.0, 0.0, 1.0]))
+        z_axis = Rotation.from_quat(arm.robot_reference_pose.quat).apply([0.0, 0.0, 1.0])
         arm.axis_lock_axis = z_axis / np.linalg.norm(z_axis)
         arm.axis_lock_active = True
 
@@ -709,6 +663,8 @@ class ElephantS570Node(Node):
         )
 
     def _is_orientation_stable(self, arm, current_quat, threshold=0.9995, steps=5):
+        """True once `current_quat` ([x, y, z, w]) has stayed within `threshold` similarity
+        to the previous call's value for `steps` consecutive calls."""
         if arm.prev_quat is None:
             arm.prev_quat = current_quat
             return False
@@ -778,7 +734,7 @@ class ElephantS570Node(Node):
         """CONTROL state: twist(arm_actual - arm_reference), scaled, added directly onto the
         frozen robot_reference_pose.
 
-        Returns (position[3], quaternion_wxyz[4]) or None.
+        Returns (position[3], quaternion [x, y, z, w][4]) or None.
         """
         if (
             arm.state != ControlState.CONTROL
@@ -793,8 +749,9 @@ class ElephantS570Node(Node):
 
         # --- 6DoF twist: how far the arm has moved since activation, in its own base frame ---
         linear_diff = actual_pos - arm.arm_reference_pose.position
-        relative_quat = _quat_multiply(actual_quat, _quat_conjugate(arm.arm_reference_pose.quat))
-        angular_diff = _quat_to_rotvec(relative_quat)
+        actual_rot = Rotation.from_quat(actual_quat)
+        ref_rot = Rotation.from_quat(arm.arm_reference_pose.quat)
+        angular_diff = (actual_rot * ref_rot.inv()).as_rotvec()
 
         # --- Scale ---
         linear_diff = linear_diff * self.linear_acceleration
@@ -873,16 +830,19 @@ class ElephantS570Node(Node):
 
         # --- Orientation: apply the delta onto the frozen robot reference, via left-multiply
         # (matches S570FK.compute_relative()'s own R_current = R_delta @ R_home convention) ---
-        delta_quat = _rotvec_to_quat(angular_diff)
-        target_quat = _quat_multiply(delta_quat, arm.robot_reference_pose.quat)
-        target_quat /= np.linalg.norm(target_quat)
+        delta_rot = Rotation.from_rotvec(angular_diff)
+        ref_rot = Rotation.from_quat(arm.robot_reference_pose.quat)
+        target_quat = (delta_rot * ref_rot).as_quat()
 
         return target_pos, target_quat
 
     def _compute_target_actionspace_method(
         self, arm: S570ArmState, side: str
     ) -> tuple[np.ndarray, np.ndarray] | None:
-        """Compute Cartesian target by mapping teleop action space to robot action space."""
+        """Compute Cartesian target by mapping teleop action space to robot action space.
+
+        Returns (position[3], quaternion [x, y, z, w][4]) or None.
+        """
 
         if arm.current_joints is None:
             return None
@@ -921,8 +881,8 @@ class ElephantS570Node(Node):
 
         return target_pos, target_quat
 
-    def _align_teleop_frame_with_flange_frame(self, quat_wxyz: np.ndarray) -> np.ndarray:
-        """Remap a quaternion [w, x, y, z] from the S570's own axis convention into the
+    def _align_teleop_frame_with_flange_frame(self, quat: np.ndarray) -> np.ndarray:
+        """Remap a quaternion [x, y, z, w] from the S570's own axis convention into the
         DynaArm flange's axis convention (a fixed left-multiply by a constant q_offset).
 
         Only used by _compute_target_actionspace_method (an alternate, currently-unselected
@@ -931,9 +891,10 @@ class ElephantS570Node(Node):
         """
         # Axis correspondence: teleop x -> robot z, teleop z -> robot -x, teleop y unchanged.
         # That's a fixed -90 degree rotation about the (shared) Y axis.
-        q_offset = _rotvec_to_quat(np.array([0.0, -np.pi / 2, 0.0]))
+        offset_rot = Rotation.from_rotvec([0.0, -np.pi / 2, 0.0])
+        quat_rot = Rotation.from_quat(quat)
 
-        return _quat_multiply(q_offset, quat_wxyz)
+        return (offset_rot * quat_rot).as_quat()
 
     # ------------------------------------------------------------------ #
     #  Publishing                                                        #
@@ -986,10 +947,10 @@ class ElephantS570Node(Node):
                     "pose": {
                         "position": {"x": float(pos[0]), "y": float(pos[1]), "z": float(pos[2])},
                         "orientation": {
-                            "w": float(quat[0]),
-                            "x": float(quat[1]),
-                            "y": float(quat[2]),
-                            "z": float(quat[3]),
+                            "x": float(quat[0]),
+                            "y": float(quat[1]),
+                            "z": float(quat[2]),
+                            "w": float(quat[3]),
                         },
                     },
                 }
@@ -1058,17 +1019,17 @@ class ElephantS570Node(Node):
 
     @staticmethod
     def _make_pose_msg(stamp, frame_id: str, pos: np.ndarray, quat: np.ndarray) -> PoseStamped:
-        """Build a PoseStamped from a position + quaternion [w, x, y, z] array pair."""
+        """Build a PoseStamped from a position + quaternion [x, y, z, w] array pair."""
         msg = PoseStamped()
         msg.header.stamp = stamp
         msg.header.frame_id = frame_id
         msg.pose.position.x = float(pos[0])
         msg.pose.position.y = float(pos[1])
         msg.pose.position.z = float(pos[2])
-        msg.pose.orientation.w = float(quat[0])
-        msg.pose.orientation.x = float(quat[1])
-        msg.pose.orientation.y = float(quat[2])
-        msg.pose.orientation.z = float(quat[3])
+        msg.pose.orientation.x = float(quat[0])
+        msg.pose.orientation.y = float(quat[1])
+        msg.pose.orientation.z = float(quat[2])
+        msg.pose.orientation.w = float(quat[3])
         return msg
 
     def _publish_pose_markers(
@@ -1080,7 +1041,7 @@ class ElephantS570Node(Node):
         p = pose_stamped.pose.position
         q = pose_stamped.pose.orientation
         origin = np.array([p.x, p.y, p.z])
-        quat = np.array([q.w, q.x, q.y, q.z])
+        rotation = Rotation.from_quat([q.x, q.y, q.z, q.w])
 
         # Sphere
         sphere = Marker()
@@ -1102,7 +1063,7 @@ class ElephantS570Node(Node):
             (np.array([0, 0, 1]), (0.0, 0.0, 1.0), 1004),  # Z blue
         ]
         for axis_vec, color, mid in axes:
-            end = origin + _quat_rotate_vector(quat, axis_vec) * 0.1
+            end = origin + rotation.apply(axis_vec) * 0.1
             arrow = Marker()
             arrow.header.frame_id = frame
             arrow.header.stamp = stamp
