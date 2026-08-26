@@ -1,7 +1,30 @@
+# Copyright 2026 Duatic AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that
+# the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions, and
+#    the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions, and
+#    the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+#    promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+# PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+# TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
 """Forward kinematics for the Elephant Robotics myController S570.
 
 Parses the S570 URDF and provides FK computation for both arms using
-pure numpy — no external robotics library required.
+numpy and scipy — no external robotics library required.
 
 The S570 has two 7-DOF arms:
   Left arm:  joint1–joint7   → end-effector at link7
@@ -10,6 +33,7 @@ The S570 has two 7-DOF arms:
 
 import xml.etree.ElementTree as ET
 import numpy as np
+from scipy.spatial.transform import Rotation
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -18,98 +42,14 @@ from ament_index_python.packages import get_package_share_directory
 _DEFAULT_URDF = Path(get_package_share_directory("elephant_s570")) / "urdf" / "s570.urdf"
 
 
-def _rotation_x(angle: float) -> np.ndarray:
-    c, s = np.cos(angle), np.sin(angle)
-    return np.array(
-        [
-            [1, 0, 0, 0],
-            [0, c, -s, 0],
-            [0, s, c, 0],
-            [0, 0, 0, 1],
-        ]
-    )
-
-
-def _rotation_y(angle: float) -> np.ndarray:
-    c, s = np.cos(angle), np.sin(angle)
-    return np.array(
-        [
-            [c, 0, s, 0],
-            [0, 1, 0, 0],
-            [-s, 0, c, 0],
-            [0, 0, 0, 1],
-        ]
-    )
-
-
-def _rotation_z(angle: float) -> np.ndarray:
-    c, s = np.cos(angle), np.sin(angle)
-    return np.array(
-        [
-            [c, -s, 0, 0],
-            [s, c, 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ]
-    )
-
-
 def _transform_from_origin(xyz: list[float], rpy: list[float]) -> np.ndarray:
     """Build a 4x4 homogeneous transform from URDF origin xyz + rpy."""
     T = np.eye(4)
     T[0, 3], T[1, 3], T[2, 3] = xyz
-    # URDF RPY: rotate around fixed axes X, Y, Z (extrinsic)
-    R = _rotation_z(rpy[2]) @ _rotation_y(rpy[1]) @ _rotation_x(rpy[0])
-    T[:3, :3] = R[:3, :3]
+    # URDF RPY: rotate around fixed axes X, Y, Z (extrinsic) — scipy's lowercase 'xyz' is
+    # the same extrinsic convention.
+    T[:3, :3] = Rotation.from_euler("xyz", rpy).as_matrix()
     return T
-
-
-def _rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
-    """Rodrigues rotation as a 4x4 homogeneous transform."""
-    ax = axis / np.linalg.norm(axis)
-    c, s = np.cos(angle), np.sin(angle)
-    t = 1.0 - c
-    x, y, z = ax
-    R = np.array(
-        [
-            [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
-            [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
-            [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
-        ]
-    )
-    T = np.eye(4)
-    T[:3, :3] = R
-    return T
-
-
-def _rotation_matrix_to_quaternion(R: np.ndarray) -> np.ndarray:
-    """Convert 3x3 rotation matrix to quaternion [w, x, y, z]."""
-    trace = R[0, 0] + R[1, 1] + R[2, 2]
-    if trace > 0:
-        s = 0.5 / np.sqrt(trace + 1.0)
-        w = 0.25 / s
-        x = (R[2, 1] - R[1, 2]) * s
-        y = (R[0, 2] - R[2, 0]) * s
-        z = (R[1, 0] - R[0, 1]) * s
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
-        w = (R[2, 1] - R[1, 2]) / s
-        x = 0.25 * s
-        y = (R[0, 1] + R[1, 0]) / s
-        z = (R[0, 2] + R[2, 0]) / s
-    elif R[1, 1] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
-        w = (R[0, 2] - R[2, 0]) / s
-        x = (R[0, 1] + R[1, 0]) / s
-        y = 0.25 * s
-        z = (R[1, 2] + R[2, 1]) / s
-    else:
-        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
-        w = (R[1, 0] - R[0, 1]) / s
-        x = (R[0, 2] + R[2, 0]) / s
-        y = (R[1, 2] + R[2, 1]) / s
-        z = 0.25 * s
-    return np.array([w, x, y, z])
 
 
 class _JointDef:
@@ -169,7 +109,7 @@ class S570FK:
             joint_angles_rad: Array of 7 joint angles in radians.
 
         Returns:
-            (position[3], quaternion_wxyz[4]) of the end-effector.
+            (position[3], quaternion [x, y, z, w][4]) of the end-effector.
         """
         chain = self._left_chain if side == "left" else self._right_chain
         assert len(joint_angles_rad) >= len(
@@ -178,10 +118,13 @@ class S570FK:
 
         T = np.eye(4)
         for i, joint in enumerate(chain):
-            T = T @ joint.origin @ _rotation_about_axis(joint.axis, joint_angles_rad[i])
+            joint_rotation = np.eye(4)
+            axis = joint.axis / np.linalg.norm(joint.axis)
+            joint_rotation[:3, :3] = Rotation.from_rotvec(axis * joint_angles_rad[i]).as_matrix()
+            T = T @ joint.origin @ joint_rotation
 
         pos = T[:3, 3]
-        quat = _rotation_matrix_to_quaternion(T[:3, :3])
+        quat = Rotation.from_matrix(T[:3, :3]).as_quat()
         return pos, quat
 
     def compute_relative(
@@ -196,24 +139,28 @@ class S570FK:
         maps to "up" on the robot, regardless of the EE orientation.
 
         Returns:
-            (delta_position[3], delta_quaternion_wxyz[4])
+            (delta_position[3], delta_quaternion [x, y, z, w][4])
         """
         chain = self._left_chain if side == "left" else self._right_chain
 
         T_home = np.eye(4)
         for i, joint in enumerate(chain):
-            T_home = T_home @ joint.origin @ _rotation_about_axis(joint.axis, home_angles_rad[i])
+            joint_rotation = np.eye(4)
+            axis = joint.axis / np.linalg.norm(joint.axis)
+            joint_rotation[:3, :3] = Rotation.from_rotvec(axis * home_angles_rad[i]).as_matrix()
+            T_home = T_home @ joint.origin @ joint_rotation
 
         T_current = np.eye(4)
         for i, joint in enumerate(chain):
-            T_current = (
-                T_current @ joint.origin @ _rotation_about_axis(joint.axis, current_angles_rad[i])
-            )
+            joint_rotation = np.eye(4)
+            axis = joint.axis / np.linalg.norm(joint.axis)
+            joint_rotation[:3, :3] = Rotation.from_rotvec(axis * current_angles_rad[i]).as_matrix()
+            T_current = T_current @ joint.origin @ joint_rotation
 
         # Position delta in base frame (simple subtraction — already in base frame)
         delta_pos = T_current[:3, 3] - T_home[:3, 3]
 
         # Orientation delta in base frame: R_delta = R_current @ R_home^T
         R_delta = T_current[:3, :3] @ T_home[:3, :3].T
-        delta_quat = _rotation_matrix_to_quaternion(R_delta)
+        delta_quat = Rotation.from_matrix(R_delta).as_quat()
         return delta_pos, delta_quat

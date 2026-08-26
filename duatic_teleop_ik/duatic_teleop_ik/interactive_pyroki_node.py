@@ -1,4 +1,28 @@
 #!/usr/bin/env python3
+
+# Copyright 2026 Duatic AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that
+# the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions, and
+#    the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions, and
+#    the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+#    promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+# PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+# TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
 """
 ROS 2 Node for Cartesian control of DynaArm systems using PyRoki.
 Supports single-arm, dual-arm, and dual-arm + hip (DuaTorso) configurations.
@@ -136,14 +160,10 @@ class InteractivePyrokiNode(Node):
             self.server = None
             self.get_logger().info("Mode: PoseStamped topic")
 
-        # Start robot detection + control in background thread
-        self.control_thread = threading.Thread(target=self._init_and_run, daemon=True)
-        self.control_thread.start()
-
         self.previous_target_pose = None
 
-    def _init_and_run(self):
-        """Wait for robot detection, then run main control loop."""
+    def setup(self):
+        """Blocking robot detection + solver setup."""
         self.get_logger().info("Waiting for robot detection...")
         self.robots_helper.wait_for_robot()
 
@@ -184,12 +204,12 @@ class InteractivePyrokiNode(Node):
         # Setup trajectory publishers
         self._setup_publishers(arm_names, hip_names)
 
-        # Wait for URDF and solver initialization
+        # Wait for description_cb() to set self._urdf_data
         while self._urdf_data is None and rclpy.ok():
-            time.sleep(0.1)
+            rclpy.spin_once(self, timeout_sec=0.1)
 
-        # Now run the main control loop
-        self.main_loop()
+        # arm_states is populated above, so the solver/masks can now be built.
+        self._initialize_solver(self._urdf_data)
 
     def _setup_publishers(self, arm_names, hip_names):
         """Create JointTrajectory publishers based on detected components."""
@@ -227,18 +247,16 @@ class InteractivePyrokiNode(Node):
                 )
 
     def description_cb(self, msg):
-        """Initialize solver from robot_description URDF."""
+        """Cache the URDF; setup() builds the solver once arm_states is populated and it's
+        waiting on this callback (see _initialize_solver())."""
         if self.solver is not None:
             return
-
         self._urdf_data = msg.data
 
-        # Wait until arm_states are populated by the detection thread
-        while not self.arm_states and rclpy.ok():
-            time.sleep(0.1)
-
+    def _initialize_solver(self, urdf_data):
+        """Build the IK solver and per-arm joint masks from `urdf_data`."""
         try:
-            self.solver = PyrokiIKSolver(msg.data)
+            self.solver = PyrokiIKSolver(urdf_data)
             self.joint_names = self.solver.joint_names
 
             self.get_logger().info(
@@ -272,8 +290,7 @@ class InteractivePyrokiNode(Node):
                 # Multi-arm: this arm's joints + optionally hip
                 mask = np.zeros(n, dtype=np.float32)
                 indices = []
-                # exclude clamp joints because not controlled via JointTrajectoryController
-                # give error otherwise because mismatch of number joints given and expected
+                # Clamp joints aren't controlled via JointTrajectoryController.
                 excluded_joints = {
                     "arm_left/clamp_left_finger_joint",
                     "arm_right/clamp_right_finger_joint",
@@ -619,13 +636,8 @@ class InteractivePyrokiNode(Node):
             for i, idx in enumerate(arm.joint_indices):
                 full_cfg[idx] = arm.smoothed_arm_q[i]
 
-        # Compute full-body velocities
-        # comment out, because not used anyways for now
-        # otherwise add it as second argument to _split_and_publish
-        # if self.last_full_q is not None:
-        #     velocities = (full_cfg - self.last_full_q) / dt
-        # else:
-        #     velocities = np.zeros_like(full_cfg)
+        # Full-body velocities aren't used here (unlike whole_body mode below) — could be
+        # passed as a 2nd arg to _split_and_publish() if ever needed.
 
         self.last_full_q = full_cfg.copy()
         self.last_time = current_time
@@ -679,6 +691,16 @@ class InteractivePyrokiNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = InteractivePyrokiNode()
+
+    # setup() spins the node itself for robot detection, so it must finish before
+    # rclpy.spin(node) below — rclpy forbids spinning one node from two threads at once.
+    node.setup()
+
+    # main_loop() never spins the node itself, just reads synced state and publishes, so
+    # it's safe to run on its own thread alongside rclpy.spin(node) below.
+    node.control_thread = threading.Thread(target=node.main_loop, daemon=True)
+    node.control_thread.start()
+
     rclpy.spin(node)
     rclpy.shutdown()
 
