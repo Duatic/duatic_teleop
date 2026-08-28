@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide explains how to set up and use the **Elephant S570 Teleoperation Arm** to teleoperate a Duatic robot system (DXTR or DynaArm).
+This guide explains how to set up and use the **Elephant S570 Teleoperation Arm** to teleoperate a Duatic robot system.
 
 The setup supports two modes:
 
@@ -122,8 +122,6 @@ Published topics:
 The receiver destination can be configured inside the batch file:
 
 * DynaArm VPN
-* DXTR VPN
-* DXTR Office
 
 Enable the desired target by uncommenting the corresponding line.
 
@@ -145,7 +143,7 @@ The values should update and match the values shown on the arm display.
 
 # 3. Direct Ubuntu Connection
 
-> For DXTR systems this would require connecting the arm directly to the NUC, which is currently **not recommended**.
+> For robot systems where this would require connecting the arm directly to the robot's onboard compute unit, this is currently **not recommended**.
 
 ---
 
@@ -195,12 +193,7 @@ The ROS topic values should match the values displayed on the arm screen.
 
 # 4. Teleoperation Conversion Node
 
-The following steps are identical whether you are using:
-
-* DXTR
-* DynaArm
-
-and should be executed inside the corresponding ROS container.
+The following steps are the same across Duatic robot systems and should be executed inside the corresponding ROS container.
 
 ---
 
