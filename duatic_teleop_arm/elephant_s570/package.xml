@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>elephant_s570</name>
-  <version>0.1.0</version>
+  <version>1.0.0</version>
   <description>
     Teleoperation interface for the Elephant Robotics myController S570 leader arm.
     Computes FK from S570 joint angles and publishes Cartesian pose targets.
