@@ -18,6 +18,9 @@ Images in this repository are to be licensed separately if you want to use them 
 3D models are to be licensed separately if you want to use them for any other usecase than running your purchased Duatic hardware with ROS 2.
 Please open an issue in order to get in touch with us.
 
+Some content is third-party and licensed separately from the rest of this repository — see
+[duatic_teleop_arm/elephant_s570/THIRD_PARTY_LICENSES.md](./duatic_teleop_arm/elephant_s570/THIRD_PARTY_LICENSES.md).
+
 # Dependencies
 
 All dependencies with their corresponding version are listed in the [repos.list](./repos.list).
