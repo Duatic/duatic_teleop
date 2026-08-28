@@ -51,7 +51,7 @@ class TeleopRosbridgeBridge(Node):
         super().__init__("publish_teleop_to_rosbridge_node")
 
         # --- Parameter ---
-        self.declare_parameter("uri", "ws://192.168.89.157:9090")
+        self.declare_parameter("uri", "ws://127.0.0.1:9090")
         self.rosbridge_uri = self.get_parameter("uri").value
 
         # --- WebSocket ---

@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
-<robot  xmlns:xacro="http://www.ros.org/wiki/xacro" name="firefighter" >
+<!--
+ Copyright 2026 Duatic AG
+ Redistribution and use in source and binary forms, with or without modification, are permitted
+ provided that the conditions of the BSD-3-Clause license (see LICENSE) are met.
+-->
+<robot  xmlns:xacro="http://www.ros.org/wiki/xacro" name="elephant_s570" >
 
 <xacro:property name="width" value=".2" />
 
