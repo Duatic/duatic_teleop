@@ -30,8 +30,8 @@ All dependencies with their corresponding version are listed in the [repos.list]
 | [ethercat_sdk_master](https://github.com/Duatic/ethercat_sdk_master) | Object oriented wrapper around the soem_interface | BSD-3-Clause |
 | [duatic_message_logger](https://github.com/Duatic/duatic_message_logger) | Logging library which allows logging with and without ROS | BSD-3-Clause |
 | [rsl_drive_sdk](https://github.com/Duatic/rsl_drive_sdk) | Basic drive sdk for the DynaDrives | BSD-3-Clause |
-| [soem_interface](https://github.com/Duatic/soem_interface) | Ethercat wrapper library around SOEM | GPL v3 |
-| [soem_vendor](https://github.com/Duatic/soem_vendor) | ROS2 packaging for SOEM | BSD-3-Clause |
+| [soem_interface](https://github.com/Duatic/soem_interface) | Ethercat wrapper library around SOME | GPL v3 |
+| [soem_vendor](https://github.com/Duatic/soem_vendor) | ROS2 packaging for SOME | BSD-3-Clause |
 
 # Usage
 
