@@ -40,7 +40,7 @@ marker_name matches any of the patterns, so the next actual pose re-initializes 
 import re
 from dataclasses import dataclass
 
-import numpy as np
+from scipy.spatial.transform import Rotation
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
@@ -114,41 +114,6 @@ class Target:
         return self.topic_names[0]
 
 
-def quat_to_array(q) -> np.ndarray:
-    """geometry_msgs/Quaternion -> [w, x, y, z]."""
-    return np.array([q.w, q.x, q.y, q.z])
-
-
-def quat_conjugate(q: np.ndarray) -> np.ndarray:
-    return np.array([q[0], -q[1], -q[2], -q[3]])
-
-
-def quat_multiply(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    w1, x1, y1, z1 = a
-    w2, x2, y2, z2 = b
-    return np.array(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ]
-    )
-
-
-def quat_to_rotvec(q: np.ndarray) -> np.ndarray:
-    """Unit quaternion [w, x, y, z] -> rotation vector (axis * angle)."""
-    if q[0] < 0.0:
-        q = -q
-    w = np.clip(q[0], -1.0, 1.0)
-    v = q[1:]
-    v_norm = np.linalg.norm(v)
-    angle = 2.0 * np.arctan2(v_norm, w)
-    if v_norm < 1e-9:
-        return np.zeros(3)
-    return (v / v_norm) * angle
-
-
 def pose_error(target: Pose, actual: Pose) -> Twist:
     """Twist error = target - actual (linear diff + rotation-vector diff)."""
     twist = Twist()
@@ -156,11 +121,14 @@ def pose_error(target: Pose, actual: Pose) -> Twist:
     twist.linear.y = target.position.y - actual.position.y
     twist.linear.z = target.position.z - actual.position.z
 
-    q_target = quat_to_array(target.orientation)
-    q_actual = quat_to_array(actual.orientation)
-    q_err = quat_multiply(q_target, quat_conjugate(q_actual))
-    q_err /= np.linalg.norm(q_err)
-    rotvec = quat_to_rotvec(q_err)
+    rotvec = (
+        Rotation.from_quat(
+            [target.orientation.x, target.orientation.y, target.orientation.z, target.orientation.w]
+        )
+        * Rotation.from_quat(
+            [actual.orientation.x, actual.orientation.y, actual.orientation.z, actual.orientation.w]
+        ).inv()
+    ).as_rotvec()
 
     twist.angular.x = float(rotvec[0])
     twist.angular.y = float(rotvec[1])
@@ -442,8 +410,8 @@ class InteractiveCartesianNode(Node):
         sphere_control.markers.append(sphere_marker)
         int_marker.controls.append(sphere_control)
 
-        for axis, quat in [("x", (1, 1, 0, 0)), ("y", (1, 0, 1, 0)), ("z", (1, 0, 0, 1))]:
-            w, x, y, z = (v / (2**0.5) for v in quat)
+        for axis in ("x", "y", "z"):
+            x, y, z, w = Rotation.from_euler(axis, 90, degrees=True).as_quat()
             for mode, name_prefix in [
                 (InteractiveMarkerControl.ROTATE_AXIS, "rotate"),
                 (InteractiveMarkerControl.MOVE_AXIS, "move"),
