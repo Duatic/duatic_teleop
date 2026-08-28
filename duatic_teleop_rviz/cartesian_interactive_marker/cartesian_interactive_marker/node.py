@@ -123,10 +123,20 @@ def pose_error(target: Pose, actual: Pose) -> Twist:
 
     rotvec = (
         Rotation.from_quat(
-            [target.orientation.x, target.orientation.y, target.orientation.z, target.orientation.w]
+            [
+                target.orientation.x,
+                target.orientation.y,
+                target.orientation.z,
+                target.orientation.w,
+            ]
         )
         * Rotation.from_quat(
-            [actual.orientation.x, actual.orientation.y, actual.orientation.z, actual.orientation.w]
+            [
+                actual.orientation.x,
+                actual.orientation.y,
+                actual.orientation.z,
+                actual.orientation.w,
+            ]
         ).inv()
     ).as_rotvec()
 
