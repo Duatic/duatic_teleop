@@ -3,14 +3,16 @@
 This package redistributes third-party content in addition to Duatic's own BSD-3-Clause
 licensed code (see [LICENSE](../../LICENSE)).
 
-## Elephant Robotics myController S570 meshes
+## Elephant Robotics myController S570 URDF and meshes
 
-The files under [`urdf/meshes/`](./urdf/meshes) —
-`base.dae`, `link1.dae` through `link7.dae`, and `mycontroller.dae` — originate from
+The files under [`urdf/`](./urdf) — `s570.urdf` and, under `urdf/meshes/`, `base.dae`,
+`link1.dae` through `link7.dae`, and `mycontroller.dae` — originate from
 [elephantrobotics/mycobot_ros](https://github.com/elephantrobotics/mycobot_ros)
 (`mycontroller_s570` branch,
 [`mycobot_description/urdf/mycontroller_s570/`](https://github.com/elephantrobotics/mycobot_ros/tree/mycontroller_s570/mycobot_description/urdf/mycontroller_s570)),
 which is licensed under the BSD 3-Clause License, Copyright (c) 2020-2023 Elephant Robotics.
+`s570.urdf` is that repository's `mycontroller.urdf` unchanged apart from the `package://`
+mesh path prefix.
 
 ```
 BSD 3-Clause License

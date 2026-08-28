@@ -17,7 +17,7 @@ The setup supports two modes:
 
 Before following this guide, start the robot stack with your launch file.
 
-> The visual meshes under `urdf/meshes/` are from Elephant Robotics' own
+> The URDF and meshes under `urdf/` are from Elephant Robotics' own
 > [mycobot_ros](https://github.com/elephantrobotics/mycobot_ros) repository (BSD-3-Clause) —
 > see [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md).
 
