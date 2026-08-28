@@ -7,6 +7,7 @@
     Gamepad-based teleoperation interface for Duatic robots.
     Maps gamepad axes and buttons to robot control commands.
   </description>
+  <author email="tschwarzer@duatic.com">Timo Schwarzer</author>
   <maintainer email="tschwarzer@duatic.com">Timo Schwarzer</maintainer>
   <license>BSD 3-Clause</license>
 

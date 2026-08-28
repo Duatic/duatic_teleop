@@ -7,6 +7,7 @@
     Teleoperation interface for the Elephant Robotics myController S570 leader arm.
     Computes FK from S570 joint angles and publishes Cartesian pose targets.
   </description>
+  <author email="tschwarzer@duatic.com">Timo Schwarzer</author>
   <maintainer email="tschwarzer@duatic.com">Timo Schwarzer</maintainer>
   <license>BSD 3-Clause</license>
 

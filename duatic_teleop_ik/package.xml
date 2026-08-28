@@ -7,6 +7,7 @@
     High-performance, JIT-compiled inverse kinematics solver using PyRoki and JAX.
     Subscribes to Cartesian PoseStamped commands and streams smooth JointTrajectory messages.
   </description>
+  <author email="tschwarzer@duatic.com">Timo Schwarzer</author>
   <maintainer email="tschwarzer@duatic.com">Timo Schwarzer</maintainer>
   <license>BSD 3-Clause</license>
 
