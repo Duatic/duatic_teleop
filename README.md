@@ -15,7 +15,7 @@ This repository contains teleoperation interfaces for [Duatic](https://duatic.co
 
 The contents are licensed under the BSD-3-Clause [license](LICENSE).\
 Images in this repository are to be licensed separately if you want to use them for any other usecase than forking this repository.
-3D models are to be licensed separately if you want to use them for any other usecase than running your purchased Duatic hardware with ROS2.
+3D models are to be licensed separately if you want to use them for any other usecase than running your purchased Duatic hardware with ROS 2.
 Please open an issue in order to get in touch with us.
 
 # Dependencies
@@ -25,13 +25,13 @@ All dependencies with their corresponding version are listed in the [repos.list]
 | Name | Description | License
 | ---  | --- | --- |
 | [duatic_ros2control](https://github.com/Duatic/duatic_ros2control) | A wrapper library for integrating the Duatic DuaDrives into ros2_control hardware interfaces | BSD-3-Clause |
-| [duatic_helpers](https://github.com/Duatic/duatic_helpers) | Common helper scripts and libraries, mostly ROS2 related | BSD-3-Clause |
+| [duatic_helpers](https://github.com/Duatic/duatic_helpers) | Common helper scripts and libraries, mostly ROS 2 related | BSD-3-Clause |
 | [duatic_control](https://github.com/Duatic/duatic_control) | Shared controller launch and configuration package | BSD-3-Clause |
 | [ethercat_sdk_master](https://github.com/Duatic/ethercat_sdk_master) | Object oriented wrapper around the soem_interface | BSD-3-Clause |
 | [duatic_message_logger](https://github.com/Duatic/duatic_message_logger) | Logging library which allows logging with and without ROS | BSD-3-Clause |
 | [rsl_drive_sdk](https://github.com/Duatic/rsl_drive_sdk) | Basic drive sdk for the DynaDrives | BSD-3-Clause |
 | [soem_interface](https://github.com/Duatic/soem_interface) | Ethercat wrapper library around SOME | GPL v3 |
-| [soem_vendor](https://github.com/Duatic/soem_vendor) | ROS2 packaging for SOME | BSD-3-Clause |
+| [soem_vendor](https://github.com/Duatic/soem_vendor) | ROS 2 packaging for SOME | BSD-3-Clause |
 
 # Usage
 
