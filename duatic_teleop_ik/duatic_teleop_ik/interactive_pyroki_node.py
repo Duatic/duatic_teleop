@@ -97,7 +97,7 @@ class InteractivePyrokiNode(Node):
         self.declare_parameter("solve_mode", "decoupled")
         # In case we want to run the inverse kinematics on a host machine
         # and then  send the jtc targets via rosbridge to the NUC:
-        self.declare_parameter("uri", "ws://192.168.89.157:9090")
+        self.declare_parameter("uri", "ws://127.0.0.1:9090")
         self.declare_parameter("rosbridge", False)
 
         self.target_link_name = self.get_parameter("target_link_name").value
