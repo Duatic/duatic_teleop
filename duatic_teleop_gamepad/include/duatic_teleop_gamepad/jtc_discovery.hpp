@@ -40,6 +40,7 @@ struct JtcTopic
 {
   std::string topic;
   std::string controller;
+  std::string component;
 };
 
 /// @brief Pick out the joint_trajectory topics belonging to the given components.
@@ -69,6 +70,7 @@ public:
   {
     std::string topic;
     std::string controller;
+    std::string component;
     std::vector<std::string> joints;
   };
 

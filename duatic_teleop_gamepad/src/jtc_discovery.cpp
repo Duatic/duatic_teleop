@@ -111,15 +111,16 @@ std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_na
     // The controller's name is the prefix plus the component, exactly. Matching on a
     // trailing substring instead would let the component "left" claim the controller for
     // "arm_left".
-    const bool wanted = accept_any || std::any_of(component_names.begin(), component_names.end(),
-                                                  [&controller](const std::string& component) {
-                                                    return !component.empty() &&
-                                                           controller == kControllerPrefix + std::string("_") +
-                                                                             component;
-                                                  });
+    const auto match = std::find_if(component_names.begin(), component_names.end(),
+                                    [&controller](const std::string& component) {
+                                      return !component.empty() &&
+                                             controller == kControllerPrefix + std::string("_") + component;
+                                    });
 
-    if (wanted) {
-      selected.push_back({ topic, controller });
+    if (match != component_names.end()) {
+      selected.push_back({ topic, controller, *match });
+    } else if (accept_any) {
+      selected.push_back({ topic, controller, {} });
     }
   }
 
@@ -212,7 +213,7 @@ void JtcDiscovery::request_joints(const JtcTopic& jtc_topic)
                        jtc_topic.controller.c_str());
         }
 
-        targets_.push_back({ jtc_topic.topic, jtc_topic.controller, joints });
+        targets_.push_back({ jtc_topic.topic, jtc_topic.controller, jtc_topic.component, joints });
         std::sort(targets_.begin(), targets_.end(),
                   [](const Target& a, const Target& b) { return a.topic < b.topic; });
 

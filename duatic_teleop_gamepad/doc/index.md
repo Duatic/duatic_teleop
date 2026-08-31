@@ -27,12 +27,19 @@ Start the joystick driver and the gamepad interface:
 
 ```bash
 ros2 run joy joy_node
-ros2 run duatic_teleop_gamepad gamepad_interface
 ```
 
-On startup the node waits for the robot to be discoverable, inspects which ros2_control
-controllers are actually running, and enables only the high-level controllers whose
-requirements are met.
+```bash
+ros2 run duatic_teleop_gamepad gamepad_interface --ros-args --params-file $(ros2 pkg prefix duatic_teleop_gamepad)/share/duatic_teleop_gamepad/config/gamepad_config.yaml
+```
+
+The node starts immediately and wires itself up as the robot appears, so it can be launched
+in any order relative to the robot. It keeps re-checking which components the robot has,
+which controllers are loaded and which trajectory topics exist, so a component or controller
+that arrives late is picked up and one that goes away is dropped, without a restart.
+
+Every setting lives in [`config/gamepad_config.yaml`](../config/gamepad_config.yaml) and is a
+normal ROS parameter, so it can be overridden from a launch file or with `ros2 param set`.
 
 ## Controls
 
@@ -62,8 +69,10 @@ layouts.
 | Triggers (right − left) | Joint 5 |
 | Left/Right stick click | Joint 6 (wrist rotation) |
 
-Only one stick axis drives a given joint pair at a time — whichever axis is furthest from
-center becomes dominant, so diagonal stick motion doesn't cause both joints to creep at once.
+Only one stick axis drives a given joint pair at a time: whichever axis is furthest from
+centre leads, and the other has to pass `jog.dominant_axis_threshold` to drive its joint as
+well, so a light diagonal doesn't creep both joints while a committed one still moves both.
+Setting that threshold equal to `jog.deadzone` lets both axes drive together.
 
 **Platform Drive** — mecanum-style base driving, active when `platform` is focused:
 
@@ -83,4 +92,27 @@ the newly active controller first, so motion never resumes from a stale target.
 
 ```{toctree}
 :hidden:
+```
+
+## Modes and controllers
+
+Which modes are on offer depends on the robot's shape and on which controllers are loaded:
+manipulation and freedrive need an arm, driving needs a platform, and each also needs its
+controller to have been spawned.
+
+`managed_controllers` lists the controllers this node is allowed to switch. Anything not
+matching one of those prefixes is invisible to it and can never be deactivated by a mode
+change, which is what keeps broadcasters and gravity compensation running.
+`protected_controllers` lists controllers that lose state when stopped, such as the drive
+controller and its odometry, and are left running across mode changes.
+
+If another node switches controllers underneath, the gamepad follows rather than carrying on
+with a mode the robot is no longer in. An explicit mode choice stands as long as its own
+controllers are still running.
+
+```{note}
+Jogging streams trajectory points that end while still moving, which a
+JointTrajectoryController rejects unless `allow_nonzero_velocity_at_trajectory_end` is true.
+The node checks this for each controller it discovers and says so by name at startup if it
+is missing, because otherwise the controller silently drops every command.
 ```

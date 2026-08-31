@@ -5,7 +5,10 @@ project(duatic_teleop_gamepad)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(controller_manager_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 # Logic shared by the node and its tests. Kept free of node ownership so it can be tested
 # without a running ROS graph.
@@ -13,6 +16,8 @@ add_library(gamepad_core
   src/controller_manager_client.cpp
   src/controller_snapshot.cpp
   src/drive_ramp.cpp
+  src/gamepad_config.cpp
+  src/gamepad_node.cpp
   src/gripper_toggle.cpp
   src/jog_group.cpp
   src/joint_state_cache.cpp
@@ -28,10 +33,19 @@ target_include_directories(gamepad_core PUBLIC
 )
 
 if(COMMAND ament_target_dependencies)
-  ament_target_dependencies(gamepad_core controller_manager_msgs rclcpp sensor_msgs)
+  ament_target_dependencies(gamepad_core controller_manager_msgs geometry_msgs rclcpp sensor_msgs std_msgs
+    trajectory_msgs)
 else()
-  target_link_libraries(gamepad_core rclcpp::rclcpp ${controller_manager_msgs_TARGETS} ${sensor_msgs_TARGETS})
+  target_link_libraries(gamepad_core rclcpp::rclcpp ${controller_manager_msgs_TARGETS} ${geometry_msgs_TARGETS}
+    ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${trajectory_msgs_TARGETS})
 endif()
+
+add_executable(gamepad_interface src/main.cpp)
+target_link_libraries(gamepad_interface gamepad_core)
+
+install(TARGETS gamepad_interface
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
 install(TARGETS gamepad_core
   ARCHIVE DESTINATION lib

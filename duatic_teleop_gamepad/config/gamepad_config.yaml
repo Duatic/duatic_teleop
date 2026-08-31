@@ -23,7 +23,7 @@
 # 13  = DPad left
 # 14  = DPad right
 
-gamepad_node:
+/**:
   ros__parameters:
     button_mapping:
       move_home: 3
@@ -31,7 +31,7 @@ gamepad_node:
       dead_man_switch: 10
       wrist_rotation_left: 7
       wrist_rotation_right: 8
-      switch_controller: 6  # Menu button for switching controllers
+      switch_controller: 6  # Menu button for switching modes
       gripper_control: 0
     axis_mapping:
       left_joystick:
@@ -59,3 +59,37 @@ gamepad_node:
         down: "platform"
         left: "arm_right"
         right: "arm_left"
+
+    jog:
+      max_velocity: 1.0        # rad/s at full stick deflection
+      max_acceleration: 5.0    # rad/s^2
+      max_position_offset: 0.1 # rad the command may lead the measured position by
+      deadzone: 0.1
+      # Deflection the quieter axis of a stick must exceed while the other one leads.
+      # Set equal to deadzone to let both axes of a stick drive their joints together.
+      dominant_axis_threshold: 0.6
+
+    drive:
+      max_velocity: 0.6   # m/s and rad/s at full stick deflection
+      acceleration: 0.5   # m/s^2
+      deceleration: 1.0   # m/s^2, kept above acceleration so speed sheds faster than it builds
+      deadzone: 0.05
+
+    input_rate: 100.0          # Hz, how often the gamepad is read
+    jog_publish_rate: 100.0    # Hz, trajectory stream rate
+    discovery_rate: 1.0        # Hz, how often controllers and topics are re-checked
+    joint_state_timeout: 0.5   # s before a joint state counts as stale
+
+    # Controllers this node may switch. Anything not listed here is invisible to it and can
+    # never be deactivated by a mode change.
+    managed_controllers:
+      - freedrive_controller
+      - joint_trajectory_controller
+      - mecanum_drive_controller
+      - platform_velocity_controller
+      - freeze_controller
+
+    # Controllers that lose state when stopped, so they are left running across mode changes.
+    protected_controllers:
+      - mecanum_drive_controller
+      - platform_velocity_controller
