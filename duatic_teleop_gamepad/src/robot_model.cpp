@@ -45,17 +45,16 @@ struct TypeIndicators
 
 /// The keyword each component type is recognised by.
 ///
-/// Order is significant: the first type with a matching keyword wins. "hand" appears under
-/// end effectors, so the arm_/hand_ prefix rule below has to be applied before this table
-/// or a "hand_left/wrist_flexion" joint would be filed as an end effector.
+/// Only the parts the gamepad actually drives are named. Anything else -- a head, a
+/// gripper's own finger joints -- classifies as misc, because naming it would create a
+/// component nothing focuses, jogs or grips. Grippers are found by their command topic,
+/// which names the arm they belong to, not by their joints.
 const std::vector<TypeIndicators>& indicator_table()
 {
   static const std::vector<TypeIndicators> table = {
     { ComponentType::Arm, { "shoulder", "elbow", "forearm", "wrist" } },
     { ComponentType::Hip, { "hip" } },
     { ComponentType::Platform, { "wheel" } },
-    { ComponentType::Head, { "head" } },
-    { ComponentType::EndEffector, { "finger", "gripper", "claw", "tool", "effector", "hand", "pinch" } },
   };
   return table;
 }
@@ -85,10 +84,6 @@ std::string to_string(ComponentType type)
       return "hip";
     case ComponentType::Platform:
       return "platform";
-    case ComponentType::Head:
-      return "head";
-    case ComponentType::EndEffector:
-      return "end_effector";
     case ComponentType::Misc:
       break;
   }

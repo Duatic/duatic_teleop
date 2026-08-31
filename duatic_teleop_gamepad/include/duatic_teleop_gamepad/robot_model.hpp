@@ -36,8 +36,6 @@ enum class ComponentType
   Arm,
   Hip,
   Platform,
-  Head,
-  EndEffector,
   Misc,
 };
 

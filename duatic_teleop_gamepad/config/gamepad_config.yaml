@@ -54,9 +54,12 @@
         down: 12
         left: 13
         right: 14
+      # The component each direction focuses, for the active mode to act on. Driving the
+      # platform is a mode of its own, reached with the mode button, so it is not a focus
+      # target. An empty name leaves a direction unassigned.
       focus_targets:
         up: "hip"
-        down: "platform"
+        down: ""
         left: "arm_right"
         right: "arm_left"
 

@@ -47,7 +47,7 @@ normal ROS parameter, so it can be overridden from a launch file or with `ros2 p
 | --- | --- |
 | Dead man switch (Right Shoulder) | Hold to allow motion. Release to stop and freeze the active controller. |
 | Menu button | Switch to the next available high-level controller (Freedrive → Joint Trajectory → Platform Drive, whichever are available). |
-| D-Pad | Switch which robot component is focused (e.g. `arm_left`, `arm_right`, `hip`, `platform`). Reported as axes on Xbox-style pads and as individual buttons on PS4/PS5-style pads — both are handled automatically. |
+| D-Pad | Focus the component the active mode acts on: up `hip`, left `arm_right`, right `arm_left`. Down is unassigned. Reported as axes on Xbox-style pads and as individual buttons on PS4/PS5-style pads — both are handled automatically. |
 | Face Bottom | Gripper open/close for the focused arm (works independently of the active high-level controller, as long as the system isn't frozen). |
 | Face Top | Move to home pose. |
 | Face Right | Move to sleep pose. |
@@ -74,7 +74,7 @@ centre leads, and the other has to pass `jog.dominant_axis_threshold` to drive i
 well, so a light diagonal doesn't creep both joints while a committed one still moves both.
 Setting that threshold equal to `jog.deadzone` lets both axes drive together.
 
-**Platform Drive** — mecanum-style base driving, active when `platform` is focused:
+**Platform Drive** — mecanum-style base driving, reached with the mode button:
 
 | Input | Motion |
 | --- | --- |

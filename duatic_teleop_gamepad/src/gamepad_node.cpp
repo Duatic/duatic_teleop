@@ -35,7 +35,6 @@ namespace duatic_teleop_gamepad
 namespace
 {
 
-constexpr const char* kPlatformFocus = "platform";
 constexpr const char* kGripperTopicSuffix = "gripper_controller/commands";
 
 /// How long to wait for a requested mode's controllers before giving up on the switch.
@@ -355,11 +354,12 @@ void GamepadNode::reset_active_mode()
 
 void GamepadNode::set_focus(const std::string& component)
 {
+  // An unset target is how a D-Pad direction is left unassigned.
   if (component.empty() || component == focus_) {
     return;
   }
 
-  if (component != kPlatformFocus && !robot_.has_component(component)) {
+  if (!robot_.has_component(component)) {
     RCLCPP_WARN(get_logger(), "Cannot focus %s: this robot has no such component", component.c_str());
     return;
   }

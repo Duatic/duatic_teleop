@@ -74,8 +74,9 @@ struct DpadMapping
   int button_left{ 13 };
   int button_right{ 14 };
 
+  /// The component each direction focuses. An empty name leaves that direction unassigned.
   std::string focus_up{ "hip" };
-  std::string focus_down{ "platform" };
+  std::string focus_down;
   std::string focus_left{ "arm_right" };
   std::string focus_right{ "arm_left" };
 };

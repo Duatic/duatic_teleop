@@ -54,10 +54,11 @@ TEST(RobotModelClassify, NamespacedArmJointsUseTheirPrefix)
             std::make_pair(std::string("arm_right"), ComponentType::Arm));
 }
 
-TEST(RobotModelClassify, HandPrefixIsAnArmNotAnEndEffector)
+TEST(RobotModelClassify, HandPrefixNamesAnArm)
 {
-  // "hand" is also an end-effector keyword, so the prefix rule has to win.
-  EXPECT_EQ(RobotModel::classify("hand_left/wrist_flexion"),
+  // A hand is jogged like an arm, and its own joints carry no arm keyword, so the prefix is
+  // what identifies it.
+  EXPECT_EQ(RobotModel::classify("hand_left/grip_joint"),
             std::make_pair(std::string("hand_left"), ComponentType::Arm));
 }
 
@@ -75,9 +76,16 @@ TEST(RobotModelClassify, FlatArmJointsHaveNoComponentName)
   EXPECT_EQ(RobotModel::classify("shoulder_lift"), std::make_pair(std::string(), ComponentType::Arm));
 }
 
-TEST(RobotModelClassify, UnrecognisedJointsAreMisc)
+TEST(RobotModelClassify, JointsTheGamepadDoesNotDriveAreMisc)
 {
   EXPECT_EQ(RobotModel::classify("some_unknown_joint"), std::make_pair(std::string("misc"), ComponentType::Misc));
+
+  // A head and a gripper's own finger joints are not things the gamepad drives, and naming
+  // them would create a component nothing focuses. Grippers are found by their command
+  // topic, which names the arm they belong to.
+  EXPECT_EQ(RobotModel::classify("head_pan"), std::make_pair(std::string("misc"), ComponentType::Misc));
+  EXPECT_EQ(RobotModel::classify("clamp_left_finger_joint"),
+            std::make_pair(std::string("misc"), ComponentType::Misc));
 }
 
 TEST(RobotModel, DerivesTheDxtrComponents)
@@ -96,20 +104,21 @@ TEST(RobotModel, PicksUpAComponentThatArrivesLate)
   // forever if the gripper's publisher happened to be discovered first.
   RobotModel model;
 
-  model.rebuild({ "gripper_left/finger" });
+  model.rebuild({ "clamp_left_finger_joint" });
   EXPECT_TRUE(model.component_names(ComponentType::Arm).empty());
 
-  EXPECT_TRUE(model.rebuild({ "gripper_left/finger", "arm_left/shoulder_lift" }));
+  EXPECT_TRUE(model.rebuild({ "clamp_left_finger_joint", "arm_left/shoulder_lift" }));
   EXPECT_EQ(model.component_names(ComponentType::Arm), (std::vector<std::string>{ "arm_left" }));
 }
 
 TEST(RobotModel, DropsAComponentThatGoesAway)
 {
   RobotModel model;
-  model.rebuild({ "arm_left/shoulder_lift", "gripper_left/finger" });
+  model.rebuild({ "arm_left/shoulder_lift", "hip_yaw" });
+  ASSERT_TRUE(model.has_component("hip"));
 
   EXPECT_TRUE(model.rebuild({ "arm_left/shoulder_lift" }));
-  EXPECT_FALSE(model.has_component("gripper_left"));
+  EXPECT_FALSE(model.has_component("hip"));
 }
 
 TEST(RobotModel, RebuildReportsNoChangeForTheSameJoints)
