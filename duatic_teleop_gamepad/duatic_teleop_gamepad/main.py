@@ -111,6 +111,17 @@ class GamepadInterface(Node):
             return default
         return msg.buttons[idx]
 
+    def axis(self, msg, group, name, default=0.0):
+        """Read a mapped axis value, returning default if out of range.
+
+        Same contract as button(): a pad that reports fewer axes than the config maps
+        must not raise out of the teleop callback.
+        """
+        idx = self.axis_mapping.get(group, {}).get(name)
+        if idx is None or idx >= len(msg.axes):
+            return default
+        return msg.axes[idx]
+
     def joy_callback(self, msg: Joy):
         """Store latest joystick message."""
         with self.joy_lock:
