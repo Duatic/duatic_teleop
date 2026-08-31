@@ -17,6 +17,7 @@ add_library(gamepad_core
   src/jtc_discovery.cpp
   src/robot_model.cpp
   src/stick_mapping.cpp
+  src/teleop_mode.cpp
 )
 target_compile_features(gamepad_core PUBLIC cxx_std_20)
 target_include_directories(gamepad_core PUBLIC
@@ -64,6 +65,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_stick_mapping test/test_stick_mapping.cpp)
   target_link_libraries(test_stick_mapping gamepad_core)
+
+  ament_add_gtest(test_teleop_mode test/test_teleop_mode.cpp)
+  target_link_libraries(test_teleop_mode gamepad_core)
 endif()
 
 ament_package()
