@@ -25,6 +25,8 @@ from duatic_teleop_gamepad.controllers.base_controller import BaseController
 import math
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+from duatic_helpers.duatic_param_helper import DuaticParamHelper
+
 
 class JointTrajectoryController(BaseController):
     """Handles joint trajectory control using the gamepad"""
@@ -32,8 +34,7 @@ class JointTrajectoryController(BaseController):
     # Joint velocity (rad/s) commanded at full stick deflection.
     MAX_JOINT_VELOCITY = 1.0
 
-    # Slew-rate limit on the commanded joint velocity (rad/s^2). Applied in tick() at
-    # ~1 kHz so the ramp is maximally smooth regardless of the joy processing rate.
+    # Slew-rate limit on the commanded joint velocity (rad/s^2).
     MAX_JOINT_ACCEL = 5.0
 
     def __init__(self, node, duatic_robots_helper, controller_helper=None):
@@ -56,7 +57,6 @@ class JointTrajectoryController(BaseController):
             self.topic_to_commanded_positions[topic] = [0.0] * len(joint_names)
 
         # Target velocities: set by process_input() at ~100 Hz from the joystick.
-        # Slew-rate limiting toward these targets happens in tick() at ~1 kHz.
         self.topic_to_target_velocities = {
             topic: [0.0] * len(joint_names)
             for topic, joint_names in self.topic_to_joint_names.items()
@@ -84,6 +84,9 @@ class JointTrajectoryController(BaseController):
 
         self.prefix_to_joints = {}
         self.is_joystick_idle = True
+        self.is_lagging = False
+
+        self.topic_to_velocity_supported = self._discover_velocity_support()
 
         # Live-tunable on hardware via `ros2 param set /gamepad_interface <name> <value>`.
         self.node.declare_parameter("jtc_max_joint_velocity", self.MAX_JOINT_VELOCITY)
@@ -98,13 +101,40 @@ class JointTrajectoryController(BaseController):
 
         self.node.get_logger().info("Joint Trajectory Controller initialized.")
 
+    def _controller_ns(self, topic):
+        """Return the controller name a joint_trajectory topic belongs to."""
+        return topic.strip("/").split("/")[-2]
+
+    def _discover_velocity_support(self):
+        """Map each discovered topic to whether its controller accepts a moving end point.
+
+        A JointTrajectoryController with allow_nonzero_velocity_at_trajectory_end left at
+        its default rejects any trajectory whose final point has a non-zero velocity, so
+        for those the stream has to fall back to zero end velocities.
+        """
+        param_helper = DuaticParamHelper(self.node)
+        supported = {}
+
+        for topic in self.topic_to_joint_names:
+            controller_ns = self._controller_ns(topic)
+            values = param_helper.get_param_values(
+                controller_ns, "allow_nonzero_velocity_at_trajectory_end"
+            )
+            supported[topic] = bool(values[0].bool_value) if values else False
+
+            if not supported[topic]:
+                self.node.get_logger().warning(
+                    f"{controller_ns} rejects a non-zero velocity at the trajectory end, so "
+                    f"it is streamed zero end velocities and will decelerate between points. "
+                    f"Set allow_nonzero_velocity_at_trajectory_end: true in its config for "
+                    f"smooth jogging."
+                )
+
+        return supported
+
     def get_low_level_controllers(self):
         """Returns all discovered JTC controller names to keep them active simultaneously."""
-        controllers = []
-        for topic in self.topic_to_joint_names.keys():
-            segments = topic.strip("/").split("/")
-            if len(segments) >= 2:
-                controllers.append(segments[-2])
+        controllers = [self._controller_ns(topic) for topic in self.topic_to_joint_names]
 
         if not controllers:
             return ["joint_trajectory_controller"]
@@ -123,39 +153,19 @@ class JointTrajectoryController(BaseController):
             self.topic_to_target_velocities[topic] = [0.0] * len(joint_names)
 
         self.is_joystick_idle = True
+        self._update_lag_feedback(False)
 
     def process_input(self, msg):
-        """Update target velocities from joystick input (runs at ~100 Hz).
-
-        Only reads the joystick and sets target_velocities. Position integration
-        and publishing happen in tick() at ~1 kHz so the JTC gets a continuous
-        high-rate stream regardless of the joy topic rate.
-        """
+        """Update target velocities from joystick input (runs at ~100 Hz)."""
         super().process_input(msg)
 
         deadzone = 0.1
         max_velocity = self.node.get_parameter("jtc_max_joint_velocity").value
 
-        left_x = (
-            msg.axes[self.node.axis_mapping["left_joystick"]["x"]]
-            if len(msg.axes) > self.node.axis_mapping["left_joystick"]["x"]
-            else 0.0
-        )
-        left_y = (
-            msg.axes[self.node.axis_mapping["left_joystick"]["y"]]
-            if len(msg.axes) > self.node.axis_mapping["left_joystick"]["y"]
-            else 0.0
-        )
-        right_x = (
-            msg.axes[self.node.axis_mapping["right_joystick"]["x"]]
-            if len(msg.axes) > self.node.axis_mapping["right_joystick"]["x"]
-            else 0.0
-        )
-        right_y = (
-            msg.axes[self.node.axis_mapping["right_joystick"]["y"]]
-            if len(msg.axes) > self.node.axis_mapping["right_joystick"]["y"]
-            else 0.0
-        )
+        left_x = self.node.axis(msg, "left_joystick", "x")
+        left_y = self.node.axis(msg, "left_joystick", "y")
+        right_x = self.node.axis(msg, "right_joystick", "x")
+        right_y = self.node.axis(msg, "right_joystick", "y")
 
         self._update_dominant_axes(left_x, left_y, right_x, right_y, deadzone)
 
@@ -168,7 +178,6 @@ class JointTrajectoryController(BaseController):
                 # tick() slews commanded_vel back to zero smoothly.
                 for i in range(len(joint_names)):
                     target_velocities[i] = 0.0
-                self.topic_to_target_velocities[topic] = target_velocities
                 continue
 
             for i, _joint_name in enumerate(joint_names):
@@ -205,43 +214,45 @@ class JointTrajectoryController(BaseController):
                         ):
                             effective_deadzone = self.dominant_axis_threshold
                     case 4:
-                        left_trigger = msg.axes[self.node.axis_mapping["triggers"]["left"]]
-                        right_trigger = msg.axes[self.node.axis_mapping["triggers"]["right"]]
-                        axis_val = right_trigger - left_trigger
+                        axis_val = self.node.axis(msg, "triggers", "right") - self.node.axis(
+                            msg, "triggers", "left"
+                        )
                     case 5:
-                        move_left = (
-                            msg.buttons[self.node.button_mapping["wrist_rotation_left"]] == 1
-                        )
-                        move_right = (
-                            msg.buttons[self.node.button_mapping["wrist_rotation_right"]] == 1
-                        )
-                        if move_left:
+                        if self.node.button(msg, "wrist_rotation_left") == 1:
                             axis_val = -1.0
-                        elif move_right:
+                        elif self.node.button(msg, "wrist_rotation_right") == 1:
                             axis_val = 1.0
 
                 target_velocities[i] = (
                     axis_val * max_velocity if abs(axis_val) > effective_deadzone else 0.0
                 )
 
-            self.topic_to_target_velocities[topic] = target_velocities
-
     def tick(self):
-        """Integrate position and publish to JTC (runs at ~1 kHz via a dedicated timer).
+        """Integrate the commanded position and publish it, on the node's JTC timer.
 
-        Applies slew-rate limiting from target_velocities (set at ~100 Hz) to
-        commanded_velocities, integrates the position, and publishes a single
-        trajectory point with time_from_start = dt_fast. At ~1 kHz the JTC
-        receives a new target every controller cycle and never brakes between
-        updates.
+        Applies slew-rate limiting from target_velocities (set by process_input()) to
+        commanded_velocities, integrates the position, and publishes a single trajectory
+        point carrying both, with time_from_start = one publish period. The controller
+        interpolates between points at its own update rate, and the point's velocity is
+        what lets it coast through a late message instead of braking to a stop.
         """
-        dt_fast = self.node.dt_fast
+        dt = self.node.jtc_dt
         max_accel = self.node.get_parameter("jtc_max_joint_accel").value
-        max_dv = max_accel * dt_fast
+        max_dv = max_accel * dt
+        joint_states = self.duatic_robots_helper.get_joint_states()
         any_active = False
+        lagging = False
 
         for topic, joint_names in self.topic_to_joint_names.items():
             if self.get_arm_from_topic(topic) != self.focused_component:
+                continue
+
+            if any(joint_name not in joint_states for joint_name in joint_names):
+                self.node.get_logger().warning(
+                    f"{self._controller_ns(topic)} has joints missing from the joint states; "
+                    f"not commanding it.",
+                    throttle_duration_sec=5.0,
+                )
                 continue
 
             target_velocities = self.topic_to_target_velocities[topic]
@@ -254,51 +265,56 @@ class JointTrajectoryController(BaseController):
                 dv = max(-max_dv, min(max_dv, dv))
                 commanded_velocities[i] += dv
 
-                if commanded_velocities[i] != 0.0:
-                    current_position = self.duatic_robots_helper.get_joint_value_from_states(
-                        joint_name
-                    )
-                    commanded_positions[i] += commanded_velocities[i] * dt_fast
-                    offset = commanded_positions[i] - current_position
-                    if abs(offset) > self.joint_pos_offset_tolerance:
-                        commanded_positions[i] = current_position + math.copysign(
-                            self.joint_pos_offset_tolerance, offset
-                        )
-                        self.node.gamepad_feedback.send_feedback(intensity=1.0)
-                    any_active = True
+                if commanded_velocities[i] == 0.0:
+                    continue
 
-            self.topic_to_commanded_velocities[topic] = commanded_velocities
-            self.topic_to_commanded_positions[topic] = commanded_positions
+                commanded_positions[i] += commanded_velocities[i] * dt
+                any_active = True
+
+                # Stop the command running away from where the arm actually is.
+                offset = commanded_positions[i] - joint_states[joint_name]
+                if abs(offset) > self.joint_pos_offset_tolerance:
+                    commanded_positions[i] = joint_states[joint_name] + math.copysign(
+                        self.joint_pos_offset_tolerance, offset
+                    )
+                    lagging = True
+
+        self._update_lag_feedback(lagging)
 
         if any_active or not self.is_joystick_idle:
             for topic, publisher in self.joint_trajectory_publishers.items():
                 if self.get_arm_from_topic(topic) == self.focused_component:
-                    self.publish_joint_trajectory(
-                        self.topic_to_commanded_positions[topic],
-                        publisher,
-                        self.topic_to_joint_names[topic],
-                    )
+                    self.publish_joint_trajectory(topic, publisher)
             self.is_joystick_idle = not any_active
 
-    def publish_joint_trajectory(self, target_positions, publisher, joint_names):
-        """Publishes a single-point trajectory for streaming position control."""
-        if not joint_names:
-            self.node.get_logger().error("No joint names available. Cannot publish trajectory.")
+    def _update_lag_feedback(self, lagging):
+        """Rumble on the edges of the position-lag state.
+
+        Rumble set over /joy/set_feedback persists until it is changed, so it needs one
+        message when the arm starts lagging behind the command and one when it catches up.
+        """
+        if lagging == self.is_lagging:
             return
 
-        if not target_positions:
-            self.node.get_logger().error("No trajectory points available to publish.")
-            return
+        self.is_lagging = lagging
+        self.node.gamepad_feedback.send_feedback(intensity=1.0 if lagging else 0.0)
+
+    def publish_joint_trajectory(self, topic, publisher):
+        """Publishes a single-point trajectory for streaming position control."""
+        joint_names = self.topic_to_joint_names[topic]
+
+        point = JointTrajectoryPoint()
+        point.positions = list(self.topic_to_commanded_positions[topic])
+        if self.topic_to_velocity_supported[topic]:
+            point.velocities = list(self.topic_to_commanded_velocities[topic])
+        else:
+            point.velocities = [0.0] * len(joint_names)
+        dt = self.node.jtc_dt
+        point.time_from_start.sec = int(dt)
+        point.time_from_start.nanosec = int((dt - int(dt)) * 1e9)
 
         trajectory_msg = JointTrajectory()
         trajectory_msg.joint_names = joint_names
-        point = JointTrajectoryPoint()
-        point.positions = list(target_positions)
-        point.velocities = [0.0] * len(joint_names)
-        point.accelerations = [0.0] * len(joint_names)
-        dt_fast = self.node.dt_fast
-        point.time_from_start.sec = int(dt_fast)
-        point.time_from_start.nanosec = int((dt_fast - int(dt_fast)) * 1e9)
         trajectory_msg.points.append(point)
         publisher.publish(trajectory_msg)
 
