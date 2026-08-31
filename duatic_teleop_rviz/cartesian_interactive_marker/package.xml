@@ -8,7 +8,7 @@
     live TF frames — publish the edited target poses on companion topics, and report the pose
     error between target and actual pose.
   </description>
-  <maintainer email="dev@duatic.com">Duatic AG</maintainer>
+  <maintainer email="pvonwirth@duatic.com">Patrick Vonwirth</maintainer>
   <license>BSD-3-Clause</license>
 
   <depend>rclpy</depend>

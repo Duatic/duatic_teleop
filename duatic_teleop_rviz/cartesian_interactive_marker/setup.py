@@ -35,7 +35,7 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
-    maintainer="Duatic AG",
+    maintainer="Patrick Vonwirth",
     maintainer_email="pvonwirth@duatic.com",
     description=(
         "Interactive RViz markers that mirror Cartesian poses (pose topics and/or TF frames), "
