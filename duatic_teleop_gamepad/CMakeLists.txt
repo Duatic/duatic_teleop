@@ -4,11 +4,14 @@ project(duatic_teleop_gamepad)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(controller_manager_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
 # Logic shared by the node and its tests. Kept free of node ownership so it can be tested
 # without a running ROS graph.
 add_library(gamepad_core
+  src/controller_manager_client.cpp
+  src/controller_snapshot.cpp
   src/joint_state_cache.cpp
   src/robot_model.cpp
 )
@@ -19,9 +22,9 @@ target_include_directories(gamepad_core PUBLIC
 )
 
 if(COMMAND ament_target_dependencies)
-  ament_target_dependencies(gamepad_core rclcpp sensor_msgs)
+  ament_target_dependencies(gamepad_core controller_manager_msgs rclcpp sensor_msgs)
 else()
-  target_link_libraries(gamepad_core rclcpp::rclcpp ${sensor_msgs_TARGETS})
+  target_link_libraries(gamepad_core rclcpp::rclcpp ${controller_manager_msgs_TARGETS} ${sensor_msgs_TARGETS})
 endif()
 
 install(TARGETS gamepad_core
@@ -46,6 +49,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_robot_model test/test_robot_model.cpp)
   target_link_libraries(test_robot_model gamepad_core)
+
+  ament_add_gtest(test_controller_snapshot test/test_controller_snapshot.cpp)
+  target_link_libraries(test_controller_snapshot gamepad_core)
 endif()
 
 ament_package()
