@@ -25,6 +25,7 @@
 #include "duatic_teleop_gamepad/jtc_discovery.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 #include <rcpputils/split.hpp>
@@ -39,6 +40,11 @@ constexpr const char* kControllerPrefix = "joint_trajectory_controller";
 constexpr const char* kTopicSuffix = "joint_trajectory";
 constexpr const char* kJointsParameter = "joints";
 constexpr const char* kAllowMovingEndParameter = "allow_nonzero_velocity_at_trajectory_end";
+
+/// How long a parameter request may stay outstanding before the controller is asked again.
+/// A controller that dies after its service answered ready never completes its request, and
+/// without a retry that controller would stay undiscovered for the lifetime of the node.
+constexpr std::chrono::seconds kJointsRequestTimeout{ 5 };
 
 }  // namespace
 
@@ -125,7 +131,11 @@ void JtcDiscovery::reconcile(const std::vector<std::string>& component_names)
     const bool known = std::any_of(targets_.begin(), targets_.end(),
                                    [&topic](const Target& target) { return target.topic == topic.topic; });
 
-    if (!known && requests_in_flight_.count(topic.controller) == 0) {
+    const auto pending = requests_in_flight_.find(topic.controller);
+    const bool waiting = pending != requests_in_flight_.end() &&
+                         node_.now() - pending->second < rclcpp::Duration(kJointsRequestTimeout);
+
+    if (!known && !waiting) {
       request_joints(topic);
     }
   }
@@ -148,12 +158,21 @@ void JtcDiscovery::request_joints(const JtcTopic& jtc_topic)
     return;
   }
 
-  requests_in_flight_.insert(jtc_topic.controller);
+  requests_in_flight_[jtc_topic.controller] = node_.now();
 
   client->get_parameters(
       { kJointsParameter, kAllowMovingEndParameter },
       [this, jtc_topic](std::shared_future<std::vector<rclcpp::Parameter>> future) {
         requests_in_flight_.erase(jtc_topic.controller);
+
+        // A retry may have gone out before this one landed, so the answer that arrives
+        // second must not register the topic twice.
+        const bool known = std::any_of(targets_.begin(), targets_.end(), [&jtc_topic](const Target& target) {
+          return target.topic == jtc_topic.topic;
+        });
+        if (known) {
+          return;
+        }
 
         const auto parameters = future.get();
         if (parameters.size() != 2 || parameters[0].get_type() != rclcpp::ParameterType::PARAMETER_STRING_ARRAY) {

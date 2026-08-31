@@ -25,7 +25,6 @@
 #pragma once
 
 #include <functional>
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -90,7 +89,10 @@ private:
   std::function<void()> on_changed_;
 
   std::unordered_map<std::string, rclcpp::AsyncParametersClient::SharedPtr> parameter_clients_;
-  std::set<std::string> requests_in_flight_;
+
+  /// When each outstanding parameter request was sent, so one that never lands can be
+  /// retried instead of shutting its controller out permanently.
+  std::unordered_map<std::string, rclcpp::Time> requests_in_flight_;
   std::vector<Target> targets_;
 };
 

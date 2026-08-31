@@ -89,6 +89,10 @@ private:
   void rebuild_gripper_publishers();
 
   void apply_mode(TeleopMode mode);
+
+  /// Send one platform velocity command.
+  void publish_drive(const DriveCommand& command);
+
   void reset_active_mode();
   void update_focus(const sensor_msgs::msg::Joy& msg);
   void set_focus(const std::string& component);

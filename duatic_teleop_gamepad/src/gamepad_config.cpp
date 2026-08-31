@@ -29,6 +29,28 @@
 namespace duatic_teleop_gamepad
 {
 
+namespace
+{
+
+/// @brief Declare a rate parameter, keeping the default when the value is not a frequency.
+///
+/// Every rate ends up as a timer period and as the dt the ramps integrate over, and a zero
+/// or negative one turns both into nonsense, so a bad value is refused at the one place it
+/// enters the node rather than guarded at each use.
+double declare_rate(rclcpp::Node& node, const std::string& name, double fallback)
+{
+  const double value = node.declare_parameter(name, fallback);
+  if (value > 0.0) {
+    return value;
+  }
+
+  RCLCPP_ERROR(node.get_logger(), "%s must be greater than zero, ignoring %.3f and using %.1f Hz", name.c_str(), value,
+               fallback);
+  return fallback;
+}
+
+}  // namespace
+
 GamepadConfig declare_config(rclcpp::Node& node)
 {
   // Each parameter's default is the struct's own initializer, so the defaults exist once in
@@ -77,9 +99,9 @@ GamepadConfig declare_config(rclcpp::Node& node)
   config.drive.deceleration = node.declare_parameter("drive.deceleration", config.drive.deceleration);
   config.drive.deadzone = node.declare_parameter("drive.deadzone", config.drive.deadzone);
 
-  config.input_rate = node.declare_parameter("input_rate", config.input_rate);
-  config.jog_publish_rate = node.declare_parameter("jog_publish_rate", config.jog_publish_rate);
-  config.discovery_rate = node.declare_parameter("discovery_rate", config.discovery_rate);
+  config.input_rate = declare_rate(node, "input_rate", config.input_rate);
+  config.jog_publish_rate = declare_rate(node, "jog_publish_rate", config.jog_publish_rate);
+  config.discovery_rate = declare_rate(node, "discovery_rate", config.discovery_rate);
   config.joint_state_timeout = node.declare_parameter("joint_state_timeout", config.joint_state_timeout);
 
   config.managed_controllers = node.declare_parameter("managed_controllers", config.managed_controllers);

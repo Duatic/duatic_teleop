@@ -89,7 +89,7 @@ void GamepadNode::on_joint_states(sensor_msgs::msg::JointState::ConstSharedPtr m
 void GamepadNode::discover()
 {
   joint_states_.expire(now());
-  const bool components_changed = robot_.rebuild(joint_states_.joint_names());
+  robot_.rebuild(joint_states_.joint_names());
 
   auto components = robot_.component_names(ComponentType::Arm);
   const auto hips = robot_.component_names(ComponentType::Hip);
@@ -97,9 +97,11 @@ void GamepadNode::discover()
 
   discovery_->reconcile(components);
 
-  if (components_changed) {
-    rebuild_gripper_publishers();
-  }
+  // Unconditionally, because a gripper controller spawned after the robot's joint set has
+  // settled changes no joint name, and keying this off a component change would leave that
+  // gripper without a publisher for the lifetime of the node. Known components are skipped
+  // inside, so repeating the scan costs a topic listing.
+  rebuild_gripper_publishers();
 
   const auto& snapshot = controllers_->snapshot();
   if (!snapshot.has_data()) {
@@ -203,7 +205,11 @@ void GamepadNode::process_input()
 
   const auto& joy = *latest_joy_;
   const bool was_frozen = freeze_;
-  freeze_ = controllers_->snapshot().freeze_active();
+
+  // Until the controller manager has answered once there is no way to tell an engaged
+  // E-Stop from a clear one, and the safe reading of the two is the engaged one.
+  const auto& snapshot = controllers_->snapshot();
+  freeze_ = !snapshot.has_data() || snapshot.freeze_active();
 
   update_focus(joy);
 
@@ -235,7 +241,12 @@ void GamepadNode::process_input()
 
   const bool switch_pressed = button_pressed(joy, config_.buttons.switch_mode);
   if (switch_pressed && !switch_held_) {
-    if (const auto next = next_mode(available_, mode_)) {
+    // A switch deactivates every managed controller the next mode does not need, and while
+    // the E-Stop is engaged that set includes the freeze controllers holding the robot. So
+    // the switch waits for the E-Stop to clear rather than taking it down.
+    if (freeze_) {
+      RCLCPP_WARN(get_logger(), "Cannot switch modes while the E-Stop is engaged");
+    } else if (const auto next = next_mode(available_, mode_)) {
       apply_mode(*next);
     } else {
       RCLCPP_WARN(get_logger(), "No teleop mode is available to switch to");
@@ -246,7 +257,9 @@ void GamepadNode::process_input()
     return;
   }
 
-  if (!freeze_) {
+  // The gripper commands motion, so it is held to the same deadman and E-Stop conditions
+  // as every other command.
+  if (can_move) {
     if (const auto position = gripper_.update(focus_, button_pressed(joy, config_.buttons.gripper))) {
       const auto publisher = gripper_pubs_.find(focus_);
       if (publisher != gripper_pubs_.end()) {
@@ -271,27 +284,15 @@ void GamepadNode::process_input()
       }
       break;
 
-    case TeleopMode::Drive: {
-      // Once stopped there is nothing to say, so the stream ends with the zero that stops
-      // the platform rather than repeating it forever.
-      if (!can_move && !drive_active_) {
-        break;
+    case TeleopMode::Drive:
+      // Stopping is reset_active_mode()'s job, which every edge that ends a drive goes
+      // through, so the stream simply ends here rather than repeating the zero forever.
+      if (can_move) {
+        publish_drive(drive_.advance(read_sticks(joy, config_.axes, config_.buttons), 1.0 / config_.input_rate,
+                                     config_.drive));
+        drive_active_ = true;
       }
-
-      const auto& command = can_move ? drive_.advance(read_sticks(joy, config_.axes, config_.buttons),
-                                                      1.0 / config_.input_rate, config_.drive)
-                                     : drive_.stop();
-      drive_active_ = can_move;
-
-      geometry_msgs::msg::TwistStamped twist;
-      twist.header.stamp = now();
-      twist.header.frame_id = "base_link";
-      twist.twist.linear.x = command.linear_x;
-      twist.twist.linear.y = command.linear_y;
-      twist.twist.angular.z = command.angular_z;
-      drive_pub_->publish(twist);
       break;
-    }
 
     case TeleopMode::Freedrive:
       // The controller does the work; the gamepad only had to activate it.
@@ -338,13 +339,38 @@ void GamepadNode::apply_mode(TeleopMode mode)
   RCLCPP_INFO(get_logger(), "Switching to %s", to_string(mode).c_str());
   controllers_->switch_controllers(plan.activate, plan.deactivate);
 
+  // The mode being left stops as soon as the operator asks for the switch, rather than
+  // whenever the new controllers happen to come up.
+  reset_active_mode();
+
   pending_mode_ = mode;
   pending_since_ = now();
 }
 
+void GamepadNode::publish_drive(const DriveCommand& command)
+{
+  geometry_msgs::msg::TwistStamped twist;
+  twist.header.stamp = now();
+  twist.header.frame_id = "base_link";
+  twist.twist.linear.x = command.linear_x;
+  twist.twist.linear.y = command.linear_y;
+  twist.twist.angular.z = command.angular_z;
+  drive_pub_->publish(twist);
+}
+
 void GamepadNode::reset_active_mode()
 {
-  drive_.stop();
+  // Every edge that ends a drive comes through here -- the deadman, the E-Stop, a mode
+  // change -- and the platform holds its last command until it is told otherwise, so the
+  // stopping zero has to go out rather than only being zeroed in the ramp.
+  const bool was_driving = drive_active_;
+  drive_active_ = false;
+
+  const auto& stopped = drive_.stop();
+  if (was_driving) {
+    publish_drive(stopped);
+  }
+
   send_rumble(0.0);
 
   for (auto& entry : jog_groups_) {

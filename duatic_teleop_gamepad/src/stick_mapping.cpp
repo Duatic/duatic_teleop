@@ -24,6 +24,7 @@
 
 #include "duatic_teleop_gamepad/stick_mapping.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace duatic_teleop_gamepad
@@ -80,11 +81,15 @@ std::vector<double> stick_to_velocities(const StickInput& input, std::size_t joi
         velocities[joint] =
             beyond(input.right_x, effective_deadzone(input.right_x, input.right_y, limits), limits.max_velocity);
         break;
-      case 4:
+      case 4: {
         // The triggers work against each other on one joint, so neither can lead the other
-        // in the sense the sticks do.
-        velocities[joint] = beyond(input.trigger_right - input.trigger_left, limits.deadzone, limits.max_velocity);
+        // in the sense the sticks do. Their difference spans twice what a single axis does,
+        // and is clamped back to one axis' worth so full opposing triggers command the
+        // configured maximum rather than double it.
+        const double opposed = std::clamp(input.trigger_right - input.trigger_left, -1.0, 1.0);
+        velocities[joint] = beyond(opposed, limits.deadzone, limits.max_velocity);
         break;
+      }
       case 5:
         velocities[joint] = beyond(wrist_deflection(input), limits.deadzone, limits.max_velocity);
         break;
