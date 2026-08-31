@@ -12,9 +12,11 @@ find_package(sensor_msgs REQUIRED)
 add_library(gamepad_core
   src/controller_manager_client.cpp
   src/controller_snapshot.cpp
+  src/jog_group.cpp
   src/joint_state_cache.cpp
   src/jtc_discovery.cpp
   src/robot_model.cpp
+  src/stick_mapping.cpp
 )
 target_compile_features(gamepad_core PUBLIC cxx_std_20)
 target_include_directories(gamepad_core PUBLIC
@@ -56,6 +58,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_jtc_discovery test/test_jtc_discovery.cpp)
   target_link_libraries(test_jtc_discovery gamepad_core)
+
+  ament_add_gtest(test_jog_group test/test_jog_group.cpp)
+  target_link_libraries(test_jog_group gamepad_core)
+
+  ament_add_gtest(test_stick_mapping test/test_stick_mapping.cpp)
+  target_link_libraries(test_stick_mapping gamepad_core)
 endif()
 
 ament_package()
