@@ -13,6 +13,7 @@ add_library(gamepad_core
   src/controller_manager_client.cpp
   src/controller_snapshot.cpp
   src/joint_state_cache.cpp
+  src/jtc_discovery.cpp
   src/robot_model.cpp
 )
 target_compile_features(gamepad_core PUBLIC cxx_std_20)
@@ -52,6 +53,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_controller_snapshot test/test_controller_snapshot.cpp)
   target_link_libraries(test_controller_snapshot gamepad_core)
+
+  ament_add_gtest(test_jtc_discovery test/test_jtc_discovery.cpp)
+  target_link_libraries(test_jtc_discovery gamepad_core)
 endif()
 
 ament_package()
