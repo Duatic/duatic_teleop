@@ -51,6 +51,15 @@ struct Component
   std::vector<std::string> joints;
 };
 
+/// @brief The component a controller topic belongs to.
+/// @param topic Full topic name, expected to be "<component>/<suffix>".
+/// @param suffix The controller-and-message part that follows the component.
+/// @return The component name, or empty if the topic does not have that shape.
+///
+/// Read from the leading segment rather than by searching backwards from the suffix, so a
+/// component whose name happens to end in another one's cannot claim its topic.
+std::string component_from_topic(const std::string& topic, const std::string& suffix);
+
 /// The robot's components, derived from the joint names currently being published.
 ///
 /// Derived afresh on every rebuild rather than latched the first time joints are seen. A
@@ -71,8 +80,6 @@ public:
 
   /// Whether a component of this name exists, whatever its type.
   bool has_component(const std::string& name) const;
-
-  const std::vector<Component>& components() const;
 
   /// @brief Work out which component a joint belongs to, and of what type.
   /// @return The component name paired with its type. A joint that matches nothing is

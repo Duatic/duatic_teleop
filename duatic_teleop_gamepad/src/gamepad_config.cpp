@@ -31,64 +31,67 @@ namespace duatic_teleop_gamepad
 
 GamepadConfig declare_config(rclcpp::Node& node)
 {
+  // Each parameter's default is the struct's own initializer, so the defaults exist once in
+  // C++ rather than once here and once in the type.
   GamepadConfig config;
 
-  config.buttons.dead_man_switch = node.declare_parameter("button_mapping.dead_man_switch", 10);
-  config.buttons.move_home = node.declare_parameter("button_mapping.move_home", 3);
-  config.buttons.move_sleep = node.declare_parameter("button_mapping.move_sleep", 1);
-  config.buttons.switch_mode = node.declare_parameter("button_mapping.switch_controller", 6);
-  config.buttons.gripper = node.declare_parameter("button_mapping.gripper_control", 0);
-  config.buttons.wrist_rotation_left = node.declare_parameter("button_mapping.wrist_rotation_left", 7);
-  config.buttons.wrist_rotation_right = node.declare_parameter("button_mapping.wrist_rotation_right", 8);
+  config.buttons.dead_man_switch =
+      node.declare_parameter("button_mapping.dead_man_switch", config.buttons.dead_man_switch);
+  config.buttons.move_home = node.declare_parameter("button_mapping.move_home", config.buttons.move_home);
+  config.buttons.move_sleep = node.declare_parameter("button_mapping.move_sleep", config.buttons.move_sleep);
+  config.buttons.switch_mode = node.declare_parameter("button_mapping.switch_controller", config.buttons.switch_mode);
+  config.buttons.gripper = node.declare_parameter("button_mapping.gripper_control", config.buttons.gripper);
+  config.buttons.wrist_rotation_left =
+      node.declare_parameter("button_mapping.wrist_rotation_left", config.buttons.wrist_rotation_left);
+  config.buttons.wrist_rotation_right =
+      node.declare_parameter("button_mapping.wrist_rotation_right", config.buttons.wrist_rotation_right);
 
-  config.axes.left_x = node.declare_parameter("axis_mapping.left_joystick.x", 0);
-  config.axes.left_y = node.declare_parameter("axis_mapping.left_joystick.y", 1);
-  config.axes.right_x = node.declare_parameter("axis_mapping.right_joystick.x", 2);
-  config.axes.right_y = node.declare_parameter("axis_mapping.right_joystick.y", 3);
-  config.axes.trigger_left = node.declare_parameter("axis_mapping.triggers.left", 4);
-  config.axes.trigger_right = node.declare_parameter("axis_mapping.triggers.right", 5);
+  config.axes.left_x = node.declare_parameter("axis_mapping.left_joystick.x", config.axes.left_x);
+  config.axes.left_y = node.declare_parameter("axis_mapping.left_joystick.y", config.axes.left_y);
+  config.axes.right_x = node.declare_parameter("axis_mapping.right_joystick.x", config.axes.right_x);
+  config.axes.right_y = node.declare_parameter("axis_mapping.right_joystick.y", config.axes.right_y);
+  config.axes.trigger_left = node.declare_parameter("axis_mapping.triggers.left", config.axes.trigger_left);
+  config.axes.trigger_right = node.declare_parameter("axis_mapping.triggers.right", config.axes.trigger_right);
 
-  config.dpad.axis_x = node.declare_parameter("dpad_mapping.axes.x", 6);
-  config.dpad.axis_y = node.declare_parameter("dpad_mapping.axes.y", 7);
-  config.dpad.button_up = node.declare_parameter("dpad_mapping.buttons.up", 11);
-  config.dpad.button_down = node.declare_parameter("dpad_mapping.buttons.down", 12);
-  config.dpad.button_left = node.declare_parameter("dpad_mapping.buttons.left", 13);
-  config.dpad.button_right = node.declare_parameter("dpad_mapping.buttons.right", 14);
+  config.dpad.axis_x = node.declare_parameter("dpad_mapping.axes.x", config.dpad.axis_x);
+  config.dpad.axis_y = node.declare_parameter("dpad_mapping.axes.y", config.dpad.axis_y);
+  config.dpad.button_up = node.declare_parameter("dpad_mapping.buttons.up", config.dpad.button_up);
+  config.dpad.button_down = node.declare_parameter("dpad_mapping.buttons.down", config.dpad.button_down);
+  config.dpad.button_left = node.declare_parameter("dpad_mapping.buttons.left", config.dpad.button_left);
+  config.dpad.button_right = node.declare_parameter("dpad_mapping.buttons.right", config.dpad.button_right);
 
-  config.dpad.focus_up = node.declare_parameter<std::string>("dpad_mapping.focus_targets.up", "hip");
-  config.dpad.focus_down = node.declare_parameter<std::string>("dpad_mapping.focus_targets.down", "platform");
-  config.dpad.focus_left = node.declare_parameter<std::string>("dpad_mapping.focus_targets.left", "arm_right");
-  config.dpad.focus_right = node.declare_parameter<std::string>("dpad_mapping.focus_targets.right", "arm_left");
+  config.dpad.focus_up = node.declare_parameter("dpad_mapping.focus_targets.up", config.dpad.focus_up);
+  config.dpad.focus_down = node.declare_parameter("dpad_mapping.focus_targets.down", config.dpad.focus_down);
+  config.dpad.focus_left = node.declare_parameter("dpad_mapping.focus_targets.left", config.dpad.focus_left);
+  config.dpad.focus_right = node.declare_parameter("dpad_mapping.focus_targets.right", config.dpad.focus_right);
 
-  config.stick.max_velocity = node.declare_parameter("jog.max_velocity", 1.0);
-  config.stick.deadzone = node.declare_parameter("jog.deadzone", 0.1);
-  config.stick.dominant_axis_threshold = node.declare_parameter("jog.dominant_axis_threshold", 0.6);
-  config.jog.max_acceleration = node.declare_parameter("jog.max_acceleration", 5.0);
-  config.jog.max_position_offset = node.declare_parameter("jog.max_position_offset", 0.1);
+  config.stick.max_velocity = node.declare_parameter("jog.max_velocity", config.stick.max_velocity);
+  config.stick.deadzone = node.declare_parameter("jog.deadzone", config.stick.deadzone);
+  config.stick.dominant_axis_threshold =
+      node.declare_parameter("jog.dominant_axis_threshold", config.stick.dominant_axis_threshold);
+  config.jog.max_acceleration = node.declare_parameter("jog.max_acceleration", config.jog.max_acceleration);
+  config.jog.max_position_offset = node.declare_parameter("jog.max_position_offset", config.jog.max_position_offset);
 
-  config.drive.max_velocity = node.declare_parameter("drive.max_velocity", 0.6);
-  config.drive.acceleration = node.declare_parameter("drive.acceleration", 0.5);
-  config.drive.deceleration = node.declare_parameter("drive.deceleration", 1.0);
-  config.drive.deadzone = node.declare_parameter("drive.deadzone", 0.05);
+  config.drive.max_velocity = node.declare_parameter("drive.max_velocity", config.drive.max_velocity);
+  config.drive.acceleration = node.declare_parameter("drive.acceleration", config.drive.acceleration);
+  config.drive.deceleration = node.declare_parameter("drive.deceleration", config.drive.deceleration);
+  config.drive.deadzone = node.declare_parameter("drive.deadzone", config.drive.deadzone);
 
-  config.input_rate = node.declare_parameter("input_rate", 100.0);
-  config.jog_publish_rate = node.declare_parameter("jog_publish_rate", 100.0);
-  config.discovery_rate = node.declare_parameter("discovery_rate", 1.0);
-  config.joint_state_timeout = node.declare_parameter("joint_state_timeout", 0.5);
+  config.input_rate = node.declare_parameter("input_rate", config.input_rate);
+  config.jog_publish_rate = node.declare_parameter("jog_publish_rate", config.jog_publish_rate);
+  config.discovery_rate = node.declare_parameter("discovery_rate", config.discovery_rate);
+  config.joint_state_timeout = node.declare_parameter("joint_state_timeout", config.joint_state_timeout);
 
-  config.managed_controllers = node.declare_parameter<std::vector<std::string>>(
-      "managed_controllers", { "freedrive_controller", "joint_trajectory_controller", "mecanum_drive_controller",
-                               "platform_velocity_controller", "freeze_controller" });
-  config.protected_controllers = node.declare_parameter<std::vector<std::string>>(
-      "protected_controllers", { "mecanum_drive_controller", "platform_velocity_controller" });
+  config.managed_controllers = node.declare_parameter("managed_controllers", config.managed_controllers);
+  config.protected_controllers = node.declare_parameter("protected_controllers", config.protected_controllers);
 
   return config;
 }
 
-double axis_value(const sensor_msgs::msg::Joy& msg, int index, double fallback)
+double axis_value(const sensor_msgs::msg::Joy& msg, int index)
 {
   if (index < 0 || static_cast<std::size_t>(index) >= msg.axes.size()) {
-    return fallback;
+    return 0.0;
   }
 
   return msg.axes[static_cast<std::size_t>(index)];

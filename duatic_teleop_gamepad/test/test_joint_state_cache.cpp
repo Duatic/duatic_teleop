@@ -86,21 +86,12 @@ TEST(JointStateCache, LaterMessageOverwritesTheSameJoint)
   EXPECT_EQ(cache.position("a"), 2.0);
 }
 
-TEST(JointStateCache, ReportsWhenTheKnownJointSetChanges)
-{
-  auto cache = make_cache();
-
-  EXPECT_TRUE(cache.update(make_state({ "a" }, { 1.0 }), at(0.0)));
-  EXPECT_FALSE(cache.update(make_state({ "a" }, { 1.5 }), at(0.1)));
-  EXPECT_TRUE(cache.update(make_state({ "a", "b" }, { 1.5, 2.0 }), at(0.2)));
-}
-
 TEST(JointStateCache, IgnoresMessagesWhoseArraysDisagree)
 {
   auto cache = make_cache();
   cache.update(make_state({ "a" }, { 1.0 }), at(0.0));
 
-  EXPECT_FALSE(cache.update(make_state({ "a", "b" }, { 9.0 }), at(0.1)));
+  cache.update(make_state({ "a", "b" }, { 9.0 }), at(0.1));
 
   EXPECT_EQ(cache.position("a"), 1.0);
   EXPECT_FALSE(cache.position("b").has_value());
@@ -112,7 +103,7 @@ TEST(JointStateCache, IgnoresMessagesCarryingNoPositions)
   cache.update(make_state({ "a" }, { 1.0 }), at(0.0));
 
   // Legal per sensor_msgs/JointState: a publisher may send only velocity or effort.
-  EXPECT_FALSE(cache.update(make_state({ "a" }, {}), at(0.1)));
+  cache.update(make_state({ "a" }, {}), at(0.1));
 
   EXPECT_EQ(cache.position("a"), 1.0);
 }

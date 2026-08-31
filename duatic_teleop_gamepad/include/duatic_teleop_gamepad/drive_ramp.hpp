@@ -66,8 +66,6 @@ public:
   /// ramp; the smoothing exists for comfort while driving, not for stopping.
   const DriveCommand& stop();
 
-  const DriveCommand& command() const;
-
 private:
   DriveCommand command_;
 };

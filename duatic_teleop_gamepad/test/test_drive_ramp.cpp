@@ -77,11 +77,12 @@ TEST(RampVelocity, LandsExactlyOnTheTarget)
 
 TEST(DriveRamp, StartsStopped)
 {
-  const DriveRamp ramp;
+  DriveRamp ramp;
+  const auto& command = ramp.stop();
 
-  EXPECT_DOUBLE_EQ(ramp.command().linear_x, 0.0);
-  EXPECT_DOUBLE_EQ(ramp.command().linear_y, 0.0);
-  EXPECT_DOUBLE_EQ(ramp.command().angular_z, 0.0);
+  EXPECT_DOUBLE_EQ(command.linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(command.linear_y, 0.0);
+  EXPECT_DOUBLE_EQ(command.angular_z, 0.0);
 }
 
 TEST(DriveRamp, SticksMapToTheirAxes)
@@ -103,38 +104,41 @@ TEST(DriveRamp, SticksMapToTheirAxes)
 TEST(DriveRamp, ReachesTheVelocityLimitAndStaysThere)
 {
   DriveRamp ramp;
+  double linear_x = 0.0;
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(1.0), kDt, limits());
+    linear_x = ramp.advance(forward(1.0), kDt, limits()).linear_x;
   }
 
-  EXPECT_DOUBLE_EQ(ramp.command().linear_x, 0.6);
+  EXPECT_DOUBLE_EQ(linear_x, 0.6);
 }
 
 TEST(DriveRamp, DeflectionInsideTheDeadzoneIsAStop)
 {
   DriveRamp ramp;
+  double linear_x = 0.0;
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(1.0), kDt, limits());
+    linear_x = ramp.advance(forward(1.0), kDt, limits()).linear_x;
   }
-  ASSERT_GT(ramp.command().linear_x, 0.0);
+  ASSERT_GT(linear_x, 0.0);
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(0.01), kDt, limits());
+    linear_x = ramp.advance(forward(0.01), kDt, limits()).linear_x;
   }
 
-  EXPECT_DOUBLE_EQ(ramp.command().linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(linear_x, 0.0);
 }
 
 TEST(DriveRamp, StopIsImmediate)
 {
   DriveRamp ramp;
+  double linear_x = 0.0;
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(1.0), kDt, limits());
+    linear_x = ramp.advance(forward(1.0), kDt, limits()).linear_x;
   }
-  ASSERT_GT(ramp.command().linear_x, 0.0);
+  ASSERT_GT(linear_x, 0.0);
 
   // Releasing the deadman has to stop the platform now, not over the deceleration ramp.
   EXPECT_DOUBLE_EQ(ramp.stop().linear_x, 0.0);
@@ -143,28 +147,30 @@ TEST(DriveRamp, StopIsImmediate)
 TEST(DriveRamp, ANonFiniteAxisIsTreatedAsCentred)
 {
   DriveRamp ramp;
+  double linear_x = 0.0;
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(1.0), kDt, limits());
+    linear_x = ramp.advance(forward(1.0), kDt, limits()).linear_x;
   }
-  ASSERT_GT(ramp.command().linear_x, 0.0);
+  ASSERT_GT(linear_x, 0.0);
 
   // A driver emitting NaN must not be able to poison the command with it.
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(std::numeric_limits<double>::quiet_NaN()), kDt, limits());
+    linear_x = ramp.advance(forward(std::numeric_limits<double>::quiet_NaN()), kDt, limits()).linear_x;
   }
 
-  EXPECT_TRUE(std::isfinite(ramp.command().linear_x));
-  EXPECT_DOUBLE_EQ(ramp.command().linear_x, 0.0);
+  EXPECT_TRUE(std::isfinite(linear_x));
+  EXPECT_DOUBLE_EQ(linear_x, 0.0);
 }
 
 TEST(DriveRamp, DeflectionBeyondFullScaleIsClamped)
 {
   DriveRamp ramp;
+  double linear_x = 0.0;
 
   for (int i = 0; i < 1000; ++i) {
-    ramp.advance(forward(5.0), kDt, limits());
+    linear_x = ramp.advance(forward(5.0), kDt, limits()).linear_x;
   }
 
-  EXPECT_DOUBLE_EQ(ramp.command().linear_x, 0.6);
+  EXPECT_DOUBLE_EQ(linear_x, 0.6);
 }

@@ -68,7 +68,6 @@ TEST(JogGroup, ResetSeedsTheCommandFromTheMeasuredState)
   const auto states = states_with({ "a", "b" }, { 1.5, -0.5 });
 
   ASSERT_TRUE(group.reset(states));
-  EXPECT_TRUE(group.ready());
   EXPECT_EQ(group.commanded_positions(), (std::vector<double>{ 1.5, -0.5 }));
   EXPECT_EQ(group.commanded_velocities(), (std::vector<double>{ 0.0, 0.0 }));
 }
@@ -81,7 +80,6 @@ TEST(JogGroup, ResetRefusesWhenAJointIsMissing)
   // The regression this guards: seeding a missing joint to 0.0 fabricates an absolute
   // position, and publishing it commands the arm to drive there.
   EXPECT_FALSE(group.reset(states));
-  EXPECT_FALSE(group.ready());
 }
 
 TEST(JogGroup, TickProducesNothingUntilReset)

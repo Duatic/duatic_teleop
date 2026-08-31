@@ -102,21 +102,24 @@ struct GamepadConfig
   /// How long a joint state stays valid after its last update, in seconds.
   double joint_state_timeout{ 0.5 };
 
-  /// Name prefixes of the controllers this node may switch.
-  std::vector<std::string> managed_controllers;
+  /// Name prefixes of the controllers this node may switch. Anything else is invisible to
+  /// it and can never end up in a deactivation set.
+  std::vector<std::string> managed_controllers{ "freedrive_controller", "joint_trajectory_controller",
+                                                "mecanum_drive_controller", "platform_velocity_controller",
+                                                "freeze_controller" };
 
   /// Name prefixes never to deactivate, for controllers that lose state when stopped.
-  std::vector<std::string> protected_controllers;
+  std::vector<std::string> protected_controllers{ "mecanum_drive_controller", "platform_velocity_controller" };
 };
 
 /// Declare every parameter on the node and read the result back.
 GamepadConfig declare_config(rclcpp::Node& node);
 
-/// @brief Read one axis, returning fallback when the pad does not report it.
+/// @brief Read one axis, returning zero when the pad does not report it.
 ///
 /// Pads report fewer axes and buttons than a config may map, and an out-of-range read in
 /// the input path would throw out of the timer callback that drives teleop.
-double axis_value(const sensor_msgs::msg::Joy& msg, int index, double fallback = 0.0);
+double axis_value(const sensor_msgs::msg::Joy& msg, int index);
 
 /// Read one button, returning false when the pad does not report it.
 bool button_pressed(const sensor_msgs::msg::Joy& msg, int index);

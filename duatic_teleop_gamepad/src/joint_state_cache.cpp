@@ -36,26 +36,22 @@ JointStateCache::JointStateCache(rclcpp::Logger logger, rclcpp::Duration stale_a
 {
 }
 
-bool JointStateCache::update(const sensor_msgs::msg::JointState& msg, const rclcpp::Time& now)
+void JointStateCache::update(const sensor_msgs::msg::JointState& msg, const rclcpp::Time& now)
 {
   if (msg.position.empty()) {
-    return false;
+    return;
   }
 
   if (msg.position.size() != msg.name.size()) {
     RCLCPP_WARN_THROTTLE(logger_, throttle_clock_, 10000,
                          "Ignoring a JointState with %zu names and %zu positions: the arrays must be the same length",
                          msg.name.size(), msg.position.size());
-    return false;
+    return;
   }
 
-  bool names_changed = false;
   for (std::size_t i = 0; i < msg.name.size(); ++i) {
-    const auto result = entries_.insert_or_assign(msg.name[i], Entry{ msg.position[i], now });
-    names_changed = names_changed || result.second;
+    entries_.insert_or_assign(msg.name[i], Entry{ msg.position[i], now });
   }
-
-  return names_changed;
 }
 
 bool JointStateCache::expire(const rclcpp::Time& now)
@@ -101,11 +97,6 @@ std::vector<std::string> JointStateCache::joint_names() const
 
   std::sort(names.begin(), names.end());
   return names;
-}
-
-bool JointStateCache::empty() const
-{
-  return entries_.empty();
 }
 
 }  // namespace duatic_teleop_gamepad

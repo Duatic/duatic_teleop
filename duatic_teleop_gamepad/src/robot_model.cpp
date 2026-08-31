@@ -25,7 +25,11 @@
 #include "duatic_teleop_gamepad/robot_model.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <map>
+#include <optional>
+
+#include <rcpputils/split.hpp>
 
 namespace duatic_teleop_gamepad
 {
@@ -56,14 +60,18 @@ const std::vector<TypeIndicators>& indicator_table()
   return table;
 }
 
-bool contains(const std::string& haystack, const std::string& needle)
+/// The component type whose keyword appears in the given name, if any.
+std::optional<ComponentType> type_of(const std::string& name)
 {
-  return haystack.find(needle) != std::string::npos;
-}
+  for (const auto& entry : indicator_table()) {
+    for (const auto& indicator : entry.indicators) {
+      if (name.find(indicator) != std::string::npos) {
+        return entry.type;
+      }
+    }
+  }
 
-bool starts_with(const std::string& value, const std::string& prefix)
-{
-  return value.rfind(prefix, 0) == 0;
+  return std::nullopt;
 }
 
 }  // namespace
@@ -87,6 +95,18 @@ std::string to_string(ComponentType type)
   return "misc";
 }
 
+std::string component_from_topic(const std::string& topic, const std::string& suffix)
+{
+  const auto segments = rcpputils::split(topic, '/', true);
+  const auto expected = rcpputils::split(suffix, '/', true);
+
+  if (segments.size() != expected.size() + 1) {
+    return {};
+  }
+
+  return std::equal(expected.begin(), expected.end(), std::next(segments.begin())) ? segments.front() : std::string{};
+}
+
 std::pair<std::string, ComponentType> RobotModel::classify(const std::string& joint_name)
 {
   const auto slash = joint_name.find('/');
@@ -96,28 +116,20 @@ std::pair<std::string, ComponentType> RobotModel::classify(const std::string& jo
     const std::string prefix = joint_name.substr(0, slash);
     const std::string suffix = joint_name.substr(slash + 1);
 
-    if (starts_with(prefix, "arm_") || starts_with(prefix, "hand_")) {
+    if (prefix.starts_with("arm_") || prefix.starts_with("hand_")) {
       return { prefix, ComponentType::Arm };
     }
 
-    for (const auto& entry : indicator_table()) {
-      for (const auto& indicator : entry.indicators) {
-        if (contains(suffix, indicator)) {
-          return { prefix, entry.type };
-        }
-      }
+    if (const auto type = type_of(suffix)) {
+      return { prefix, *type };
     }
   }
 
   // Flat joint names, as a single-arm robot publishes them.
-  for (const auto& entry : indicator_table()) {
-    for (const auto& indicator : entry.indicators) {
-      if (contains(joint_name, indicator)) {
-        // An arm on a flat robot gets no component name, so the topic derived from it is
-        // the un-suffixed "/joint_trajectory_controller/joint_trajectory".
-        return { entry.type == ComponentType::Arm ? std::string{} : to_string(entry.type), entry.type };
-      }
-    }
+  if (const auto type = type_of(joint_name)) {
+    // An arm on a flat robot gets no component name, so the topic derived from it is the
+    // un-suffixed "/joint_trajectory_controller/joint_trajectory".
+    return { *type == ComponentType::Arm ? std::string{} : to_string(*type), *type };
   }
 
   return { "misc", ComponentType::Misc };
@@ -176,11 +188,6 @@ bool RobotModel::has_component(const std::string& name) const
 {
   return std::any_of(components_.begin(), components_.end(),
                      [&name](const Component& component) { return component.name == name; });
-}
-
-const std::vector<Component>& RobotModel::components() const
-{
-  return components_;
 }
 
 }  // namespace duatic_teleop_gamepad

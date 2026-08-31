@@ -65,6 +65,14 @@ public:
   GamepadNode();
 
 private:
+  /// A jog group and the publisher its commands go out on, kept together so the two can
+  /// never fall out of step.
+  struct JogTarget
+  {
+    JogGroup group;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher;
+  };
+
   void on_joy(sensor_msgs::msg::Joy::ConstSharedPtr msg);
   void on_joint_states(sensor_msgs::msg::JointState::ConstSharedPtr msg);
 
@@ -87,8 +95,8 @@ private:
   void send_rumble(double intensity);
   void stop_move_commands();
 
-  /// The jog group driving the focused component, or nullptr when none does.
-  JogGroup* focused_group();
+  /// The jog target for the focused component, or nullptr when there is none.
+  JogTarget* focused_target();
 
   GamepadConfig config_;
 
@@ -98,7 +106,7 @@ private:
   std::unique_ptr<JtcDiscovery> discovery_;
 
   /// Keyed by the component each group drives, which is what focus selects.
-  std::map<std::string, JogGroup> jog_groups_;
+  std::map<std::string, JogTarget> jog_groups_;
   DriveRamp drive_;
   GripperToggle gripper_;
 
@@ -115,9 +123,7 @@ private:
   bool move_command_active_{ false };
   bool drive_active_{ false };
   bool rumbling_{ false };
-  double dpad_x_{ 0.0 };
-  double dpad_y_{ 0.0 };
-  bool dpad_button_held_{ false };
+  bool dpad_held_{ false };
 
   rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
@@ -127,7 +133,6 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr drive_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JoyFeedback>::SharedPtr feedback_pub_;
 
-  std::map<std::string, rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr> jog_pubs_;
   std::map<std::string, rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr> gripper_pubs_;
 
   rclcpp::TimerBase::SharedPtr input_timer_;

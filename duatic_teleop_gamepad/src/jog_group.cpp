@@ -137,9 +137,4 @@ bool JogGroup::lagging() const
   return lagging_;
 }
 
-bool JogGroup::ready() const
-{
-  return ready_;
-}
-
 }  // namespace duatic_teleop_gamepad

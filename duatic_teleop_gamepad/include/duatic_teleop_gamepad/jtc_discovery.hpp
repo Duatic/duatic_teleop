@@ -69,7 +69,6 @@ public:
   struct Target
   {
     std::string topic;
-    std::string controller;
     std::string component;
     std::vector<std::string> joints;
   };
@@ -83,9 +82,6 @@ public:
   void reconcile(const std::vector<std::string>& component_names);
 
   const std::vector<Target>& targets() const;
-
-  /// Joints driven by one topic, or an empty list if it is not a known target.
-  const std::vector<std::string>& joints_for(const std::string& topic) const;
 
 private:
   void request_joints(const JtcTopic& jtc_topic);

@@ -54,9 +54,6 @@ public:
 
   const ControllerSnapshot& snapshot() const;
 
-  /// Request a listing now instead of waiting for the next poll.
-  void refresh();
-
   /// @brief Activate and deactivate controllers in one switch.
   ///
   /// Names already in the requested state are dropped, and the call is skipped entirely if

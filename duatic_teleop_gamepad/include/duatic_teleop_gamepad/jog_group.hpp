@@ -80,9 +80,6 @@ public:
   /// Whether the arm is failing to keep up, i.e. the command is being held back.
   bool lagging() const;
 
-  /// Whether the command is seeded and can be advanced.
-  bool ready() const;
-
 private:
   std::string topic_;
   std::vector<std::string> joints_;

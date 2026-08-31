@@ -36,7 +36,7 @@ namespace
 {
 
 constexpr const char* kPlatformFocus = "platform";
-constexpr const char* kGripperTopicSuffix = "/gripper_controller/commands";
+constexpr const char* kGripperTopicSuffix = "gripper_controller/commands";
 
 /// How long to wait for a requested mode's controllers before giving up on the switch.
 constexpr std::chrono::seconds kModeSwitchTimeout{ 3 };
@@ -44,18 +44,6 @@ constexpr std::chrono::seconds kModeSwitchTimeout{ 3 };
 std::chrono::nanoseconds period_from_rate(double rate_hz)
 {
   return std::chrono::nanoseconds(static_cast<int64_t>(1e9 / rate_hz));
-}
-
-/// The component a controller topic drives, taken from the controller's name suffix.
-std::string component_of(const std::string& topic, const std::string& suffix)
-{
-  const auto end = topic.rfind(suffix);
-  if (end == std::string::npos) {
-    return {};
-  }
-
-  const auto start = topic.rfind('/', end - 1);
-  return start == std::string::npos ? topic.substr(0, end) : topic.substr(start + 1, end - start - 1);
 }
 
 }  // namespace
@@ -101,8 +89,8 @@ void GamepadNode::on_joint_states(sensor_msgs::msg::JointState::ConstSharedPtr m
 
 void GamepadNode::discover()
 {
-  const bool expired = joint_states_.expire(now());
-  const bool components_changed = robot_.rebuild(joint_states_.joint_names()) || expired;
+  joint_states_.expire(now());
+  const bool components_changed = robot_.rebuild(joint_states_.joint_names());
 
   auto components = robot_.component_names(ComponentType::Arm);
   const auto hips = robot_.component_names(ComponentType::Hip);
@@ -169,11 +157,11 @@ void GamepadNode::discover()
 void GamepadNode::rebuild_jog_groups()
 {
   jog_groups_.clear();
-  jog_pubs_.clear();
 
   for (const auto& target : discovery_->targets()) {
-    jog_groups_.emplace(target.component, JogGroup(target.topic, target.joints));
-    jog_pubs_[target.topic] = create_publisher<trajectory_msgs::msg::JointTrajectory>(target.topic, 10);
+    jog_groups_.emplace(target.component,
+                        JogTarget{ JogGroup(target.topic, target.joints),
+                                   create_publisher<trajectory_msgs::msg::JointTrajectory>(target.topic, 10) });
   }
 
   if (focus_.empty() && !jog_groups_.empty()) {
@@ -189,22 +177,20 @@ void GamepadNode::rebuild_jog_groups()
 void GamepadNode::rebuild_gripper_publishers()
 {
   for (const auto& entry : get_topic_names_and_types()) {
-    const auto& topic = entry.first;
-    if (topic.size() <= std::string(kGripperTopicSuffix).size() ||
-        topic.compare(topic.size() - std::string(kGripperTopicSuffix).size(), std::string::npos,
-                      kGripperTopicSuffix) != 0) {
+    const auto component = component_from_topic(entry.first, kGripperTopicSuffix);
+
+    // Checked against the robot's own components, so a topic that merely looks like one
+    // cannot register a gripper for a component that does not exist.
+    if (component.empty() || !robot_.has_component(component) || gripper_pubs_.count(component) != 0) {
       continue;
     }
 
-    const auto component = component_of(topic, kGripperTopicSuffix);
-    if (!component.empty() && gripper_pubs_.count(component) == 0) {
-      gripper_pubs_[component] = create_publisher<std_msgs::msg::Float64MultiArray>(topic, 1);
-      RCLCPP_INFO(get_logger(), "Found a gripper for %s on %s", component.c_str(), topic.c_str());
-    }
+    gripper_pubs_[component] = create_publisher<std_msgs::msg::Float64MultiArray>(entry.first, 1);
+    RCLCPP_INFO(get_logger(), "Found a gripper for %s on %s", component.c_str(), entry.first.c_str());
   }
 }
 
-JogGroup* GamepadNode::focused_group()
+GamepadNode::JogTarget* GamepadNode::focused_target()
 {
   const auto match = jog_groups_.find(focus_);
   return match == jog_groups_.end() ? nullptr : &match->second;
@@ -276,13 +262,12 @@ void GamepadNode::process_input()
 
   switch (*mode_) {
     case TeleopMode::Jog:
-      if (auto* group = focused_group()) {
+      if (auto* target = focused_target()) {
         if (can_move) {
-          group->set_target_velocities(
-              stick_to_velocities(read_sticks(joy, config_.axes, config_.buttons), group->joints().size(),
-                                  config_.stick));
+          target->group.set_target_velocities(stick_to_velocities(read_sticks(joy, config_.axes, config_.buttons),
+                                                                  target->group.joints().size(), config_.stick));
         } else {
-          group->release();
+          target->group.release();
         }
       }
       break;
@@ -321,28 +306,28 @@ void GamepadNode::publish_jog()
     return;
   }
 
-  auto* group = focused_group();
-  if (group == nullptr) {
+  auto* target = focused_target();
+  if (target == nullptr) {
     return;
   }
 
-  if (!group->tick(1.0 / config_.jog_publish_rate, config_.jog, joint_states_)) {
+  if (!target->group.tick(1.0 / config_.jog_publish_rate, config_.jog, joint_states_)) {
     send_rumble(0.0);
     return;
   }
 
   trajectory_msgs::msg::JointTrajectory trajectory;
-  trajectory.joint_names = group->joints();
+  trajectory.joint_names = target->group.joints();
 
   trajectory_msgs::msg::JointTrajectoryPoint point;
-  point.positions = group->commanded_positions();
-  point.velocities = group->commanded_velocities();
+  point.positions = target->group.commanded_positions();
+  point.velocities = target->group.commanded_velocities();
   point.time_from_start = rclcpp::Duration::from_seconds(1.0 / config_.jog_publish_rate);
   trajectory.points.push_back(std::move(point));
 
-  jog_pubs_[group->topic()]->publish(trajectory);
+  target->publisher->publish(trajectory);
 
-  send_rumble(group->lagging() ? 1.0 : 0.0);
+  send_rumble(target->group.lagging() ? 1.0 : 0.0);
 }
 
 void GamepadNode::apply_mode(TeleopMode mode)
@@ -364,7 +349,7 @@ void GamepadNode::reset_active_mode()
   send_rumble(0.0);
 
   for (auto& entry : jog_groups_) {
-    entry.second.reset(joint_states_);
+    entry.second.group.reset(joint_states_);
   }
 }
 
@@ -388,37 +373,33 @@ void GamepadNode::set_focus(const std::string& component)
 
 void GamepadNode::update_focus(const sensor_msgs::msg::Joy& msg)
 {
-  // Xbox-style pads report the D-Pad as axes and PlayStation-style ones as buttons, so both
-  // are read and whichever the pad actually populates wins.
+  // Xbox-style pads report the D-Pad as a pair of axes and PlayStation-style ones as four
+  // buttons. Both are reduced to one direction here so there is a single edge to detect and
+  // a single mapping to the focus targets, rather than one of each per pad style.
   const double axis_x = axis_value(msg, config_.dpad.axis_x);
   const double axis_y = axis_value(msg, config_.dpad.axis_y);
 
-  const bool up = button_pressed(msg, config_.dpad.button_up);
-  const bool down = button_pressed(msg, config_.dpad.button_down);
-  const bool left = button_pressed(msg, config_.dpad.button_left);
-  const bool right = button_pressed(msg, config_.dpad.button_right);
-  const bool any_button = up || down || left || right;
+  const auto direction = [&]() -> const std::string* {
+    if (button_pressed(msg, config_.dpad.button_up) || axis_y > 0.5) {
+      return &config_.dpad.focus_up;
+    }
+    if (button_pressed(msg, config_.dpad.button_down) || axis_y < -0.5) {
+      return &config_.dpad.focus_down;
+    }
+    if (button_pressed(msg, config_.dpad.button_left) || axis_x > 0.5) {
+      return &config_.dpad.focus_left;
+    }
+    if (button_pressed(msg, config_.dpad.button_right) || axis_x < -0.5) {
+      return &config_.dpad.focus_right;
+    }
+    return nullptr;
+  }();
 
-  if (any_button && !dpad_button_held_) {
-    set_focus(up      ? config_.dpad.focus_up
-              : down  ? config_.dpad.focus_down
-              : left  ? config_.dpad.focus_left
-                      : config_.dpad.focus_right);
-  }
-  dpad_button_held_ = any_button;
-
-  if (axis_y > 0.5 && dpad_y_ <= 0.5) {
-    set_focus(config_.dpad.focus_up);
-  } else if (axis_y < -0.5 && dpad_y_ >= -0.5) {
-    set_focus(config_.dpad.focus_down);
-  } else if (axis_x > 0.5 && dpad_x_ <= 0.5) {
-    set_focus(config_.dpad.focus_left);
-  } else if (axis_x < -0.5 && dpad_x_ >= -0.5) {
-    set_focus(config_.dpad.focus_right);
+  if (direction != nullptr && !dpad_held_) {
+    set_focus(*direction);
   }
 
-  dpad_x_ = axis_x;
-  dpad_y_ = axis_y;
+  dpad_held_ = direction != nullptr;
 }
 
 void GamepadNode::send_rumble(double intensity)

@@ -83,9 +83,4 @@ const DriveCommand& DriveRamp::stop()
   return command_;
 }
 
-const DriveCommand& DriveRamp::command() const
-{
-  return command_;
-}
-
 }  // namespace duatic_teleop_gamepad

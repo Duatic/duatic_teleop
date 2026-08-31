@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <utility>
 
+#include <rcpputils/split.hpp>
+
 namespace duatic_teleop_gamepad
 {
 
@@ -37,40 +39,6 @@ constexpr const char* kControllerPrefix = "joint_trajectory_controller";
 constexpr const char* kTopicSuffix = "joint_trajectory";
 constexpr const char* kJointsParameter = "joints";
 constexpr const char* kAllowMovingEndParameter = "allow_nonzero_velocity_at_trajectory_end";
-
-std::vector<std::string> split(const std::string& value, char separator)
-{
-  std::vector<std::string> parts;
-  std::string part;
-
-  for (const char character : value) {
-    if (character == separator) {
-      if (!part.empty()) {
-        parts.push_back(part);
-        part.clear();
-      }
-    } else {
-      part.push_back(character);
-    }
-  }
-
-  if (!part.empty()) {
-    parts.push_back(part);
-  }
-
-  return parts;
-}
-
-bool starts_with(const std::string& value, const std::string& prefix)
-{
-  return value.rfind(prefix, 0) == 0;
-}
-
-const std::vector<std::string>& no_joints()
-{
-  static const std::vector<std::string> empty;
-  return empty;
-}
 
 }  // namespace
 
@@ -89,10 +57,10 @@ std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_na
   const bool accept_any =
       std::any_of(component_names.begin(), component_names.end(), [](const std::string& name) { return name.empty(); });
 
-  const auto expected_namespace = split(node_namespace, '/');
+  const auto expected_namespace = rcpputils::split(node_namespace, '/', true);
 
   for (const auto& topic : topic_names) {
-    const auto segments = split(topic, '/');
+    const auto segments = rcpputils::split(topic, '/', true);
 
     // Expect <namespace...>/<controller>/joint_trajectory.
     if (segments.size() != expected_namespace.size() + 2) {
@@ -104,7 +72,7 @@ std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_na
     }
 
     const std::string& controller = segments[segments.size() - 2];
-    if (!starts_with(controller, kControllerPrefix) || segments.back() != kTopicSuffix) {
+    if (!controller.starts_with(kControllerPrefix) || segments.back() != kTopicSuffix) {
       continue;
     }
 
@@ -213,7 +181,7 @@ void JtcDiscovery::request_joints(const JtcTopic& jtc_topic)
                        jtc_topic.controller.c_str());
         }
 
-        targets_.push_back({ jtc_topic.topic, jtc_topic.controller, jtc_topic.component, joints });
+        targets_.push_back({ jtc_topic.topic, jtc_topic.component, joints });
         std::sort(targets_.begin(), targets_.end(),
                   [](const Target& a, const Target& b) { return a.topic < b.topic; });
 
@@ -226,14 +194,6 @@ void JtcDiscovery::request_joints(const JtcTopic& jtc_topic)
 const std::vector<JtcDiscovery::Target>& JtcDiscovery::targets() const
 {
   return targets_;
-}
-
-const std::vector<std::string>& JtcDiscovery::joints_for(const std::string& topic) const
-{
-  const auto it = std::find_if(targets_.begin(), targets_.end(),
-                               [&topic](const Target& target) { return target.topic == topic; });
-
-  return it == targets_.end() ? no_joints() : it->joints;
 }
 
 }  // namespace duatic_teleop_gamepad

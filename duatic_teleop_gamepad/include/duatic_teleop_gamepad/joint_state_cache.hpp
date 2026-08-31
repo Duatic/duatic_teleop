@@ -57,8 +57,7 @@ public:
   ///   carrying no positions is not an error: a publisher may legally send only velocity
   ///   or effort, and there is simply nothing here to merge.
   /// @param now Timestamp the merged entries are stamped with.
-  /// @return true if the set of known joint names changed.
-  bool update(const sensor_msgs::msg::JointState& msg, const rclcpp::Time& now);
+  void update(const sensor_msgs::msg::JointState& msg, const rclcpp::Time& now);
 
   /// @brief Drop entries that have not been updated within the staleness window.
   /// @return true if the set of known joint names changed.
@@ -72,8 +71,6 @@ public:
 
   /// Every known joint name, sorted so the result is stable across calls.
   std::vector<std::string> joint_names() const;
-
-  bool empty() const;
 
 private:
   struct Entry

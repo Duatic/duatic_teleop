@@ -33,13 +33,9 @@ namespace
 {
 
 constexpr const char* kActive = "active";
-constexpr const char* kFreezePrefix = "freeze_controller";
-constexpr const char* kGlobalFreeze = "freeze_controller";
-
-bool starts_with(const std::string& value, const std::string& prefix)
-{
-  return value.rfind(prefix, 0) == 0;
-}
+/// The global E-Stop controller's name, which is also the prefix the per-component freeze
+/// controllers carry.
+constexpr const char* kFreezeController = "freeze_controller";
 
 /// @brief Decide whether the E-Stop is engaged.
 ///
@@ -53,11 +49,11 @@ bool determine_freeze(const std::vector<ControllerState>& controllers)
   bool any_freeze_active = false;
 
   for (const auto& controller : controllers) {
-    if (!starts_with(controller.name, kFreezePrefix)) {
+    if (!controller.name.starts_with(kFreezeController)) {
       continue;
     }
 
-    if (controller.name == kGlobalFreeze) {
+    if (controller.name == kFreezeController) {
       return controller.state == kActive;
     }
 
@@ -80,7 +76,7 @@ ControllerSnapshot ControllerSnapshot::build(const std::vector<ControllerState>&
   for (const auto& controller : controllers) {
     const bool managed =
         std::any_of(managed_bases.begin(), managed_bases.end(),
-                    [&controller](const std::string& base) { return starts_with(controller.name, base); });
+                    [&controller](const std::string& base) { return controller.name.starts_with(base); });
     if (!managed) {
       continue;
     }
@@ -92,8 +88,6 @@ ControllerSnapshot ControllerSnapshot::build(const std::vector<ControllerState>&
     }
   }
 
-  std::sort(snapshot.managed_.begin(), snapshot.managed_.end(),
-            [](const ControllerState& a, const ControllerState& b) { return a.name < b.name; });
   std::sort(snapshot.active_.begin(), snapshot.active_.end());
 
   return snapshot;
@@ -126,7 +120,7 @@ std::vector<std::string> ControllerSnapshot::matching(const std::vector<std::str
       // a single instance cannot drag its siblings along.
       const bool is_base =
           std::find(managed_bases_.begin(), managed_bases_.end(), requested) != managed_bases_.end();
-      const bool matches = is_base ? starts_with(controller.name, requested) : controller.name == requested;
+      const bool matches = is_base ? controller.name.starts_with(requested) : controller.name == requested;
 
       if (matches) {
         matched.push_back(controller.name);

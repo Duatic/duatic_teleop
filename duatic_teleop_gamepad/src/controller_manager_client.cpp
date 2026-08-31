@@ -47,11 +47,6 @@ const ControllerSnapshot& ControllerManagerClient::snapshot() const
   return snapshot_;
 }
 
-void ControllerManagerClient::refresh()
-{
-  poll();
-}
-
 void ControllerManagerClient::poll()
 {
   // service_is_ready() only reads the graph cache, unlike wait_for_service(), which would
@@ -125,7 +120,7 @@ void ControllerManagerClient::switch_controllers(const std::vector<std::string>&
 
         // The snapshot is stale the moment a switch succeeds, and the next mode decision
         // reads it, so do not wait for the next poll to catch up.
-        refresh();
+        poll();
       });
 }
 

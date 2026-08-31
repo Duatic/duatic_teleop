@@ -66,11 +66,6 @@ bool has_platform(const RobotModel& model)
   return !model.component_names(ComponentType::Platform).empty();
 }
 
-bool starts_with(const std::string& value, const std::string& prefix)
-{
-  return value.rfind(prefix, 0) == 0;
-}
-
 void append_unique(std::vector<std::string>& into, const std::vector<std::string>& from)
 {
   for (const auto& value : from) {
@@ -191,7 +186,7 @@ ControllerSwitch plan_switch(const std::vector<std::string>& needed, const std::
     }
 
     const bool is_protected = std::any_of(protected_bases.begin(), protected_bases.end(),
-                                          [&name](const std::string& base) { return starts_with(name, base); });
+                                          [&name](const std::string& base) { return name.starts_with(base); });
     if (!is_protected) {
       plan.deactivate.push_back(name);
     }
