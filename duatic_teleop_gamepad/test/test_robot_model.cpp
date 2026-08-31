@@ -1,0 +1,131 @@
+/*
+ * Copyright 2026 Duatic AG
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
+ * following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
+ * disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote
+ * products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include <gtest/gtest.h>
+
+#include "duatic_teleop_gamepad/robot_model.hpp"
+
+using duatic_teleop_gamepad::ComponentType;
+using duatic_teleop_gamepad::RobotModel;
+
+namespace
+{
+
+/// The joint set the dxtr example publishes, in the order the broadcaster lists it.
+const std::vector<std::string> kDxtrJoints = {
+  "arm_left/shoulder_lift",   "arm_left/shoulder_rotation",  "arm_left/shoulder_flexion",
+  "arm_left/elbow_flexion",   "arm_left/forearm_rotation",   "arm_left/wrist_flexion",
+  "arm_left/wrist_rotation",  "arm_right/shoulder_lift",     "arm_right/shoulder_rotation",
+  "arm_right/shoulder_flexion", "arm_right/elbow_flexion",   "arm_right/forearm_rotation",
+  "arm_right/wrist_flexion",  "arm_right/wrist_rotation",    "hip_yaw",
+  "hip_pitch",                "wheel_front_left",            "wheel_front_right",
+  "wheel_back_right",         "wheel_back_left",
+};
+
+}  // namespace
+
+TEST(RobotModelClassify, NamespacedArmJointsUseTheirPrefix)
+{
+  EXPECT_EQ(RobotModel::classify("arm_left/shoulder_lift"),
+            std::make_pair(std::string("arm_left"), ComponentType::Arm));
+  EXPECT_EQ(RobotModel::classify("arm_right/wrist_rotation"),
+            std::make_pair(std::string("arm_right"), ComponentType::Arm));
+}
+
+TEST(RobotModelClassify, HandPrefixIsAnArmNotAnEndEffector)
+{
+  // "hand" is also an end-effector keyword, so the prefix rule has to win.
+  EXPECT_EQ(RobotModel::classify("hand_left/wrist_flexion"),
+            std::make_pair(std::string("hand_left"), ComponentType::Arm));
+}
+
+TEST(RobotModelClassify, FlatJointsFallBackToKeywords)
+{
+  EXPECT_EQ(RobotModel::classify("hip_yaw"), std::make_pair(std::string("hip"), ComponentType::Hip));
+  EXPECT_EQ(RobotModel::classify("wheel_front_left"),
+            std::make_pair(std::string("platform"), ComponentType::Platform));
+}
+
+TEST(RobotModelClassify, FlatArmJointsHaveNoComponentName)
+{
+  // A single-arm robot exposes "/joint_trajectory_controller/joint_trajectory" with no
+  // component suffix, so the component it belongs to must be unnamed.
+  EXPECT_EQ(RobotModel::classify("shoulder_lift"), std::make_pair(std::string(), ComponentType::Arm));
+}
+
+TEST(RobotModelClassify, UnrecognisedJointsAreMisc)
+{
+  EXPECT_EQ(RobotModel::classify("some_unknown_joint"), std::make_pair(std::string("misc"), ComponentType::Misc));
+}
+
+TEST(RobotModel, DerivesTheDxtrComponents)
+{
+  RobotModel model;
+  EXPECT_TRUE(model.rebuild(kDxtrJoints));
+
+  EXPECT_EQ(model.component_names(ComponentType::Arm), (std::vector<std::string>{ "arm_left", "arm_right" }));
+  EXPECT_EQ(model.component_names(ComponentType::Hip), (std::vector<std::string>{ "hip" }));
+  EXPECT_EQ(model.component_names(ComponentType::Platform), (std::vector<std::string>{ "platform" }));
+}
+
+TEST(RobotModel, PicksUpAComponentThatArrivesLate)
+{
+  // The failure this guards: a model latched on the first message would report no arms
+  // forever if the gripper's publisher happened to be discovered first.
+  RobotModel model;
+
+  model.rebuild({ "gripper_left/finger" });
+  EXPECT_TRUE(model.component_names(ComponentType::Arm).empty());
+
+  EXPECT_TRUE(model.rebuild({ "gripper_left/finger", "arm_left/shoulder_lift" }));
+  EXPECT_EQ(model.component_names(ComponentType::Arm), (std::vector<std::string>{ "arm_left" }));
+}
+
+TEST(RobotModel, DropsAComponentThatGoesAway)
+{
+  RobotModel model;
+  model.rebuild({ "arm_left/shoulder_lift", "gripper_left/finger" });
+
+  EXPECT_TRUE(model.rebuild({ "arm_left/shoulder_lift" }));
+  EXPECT_FALSE(model.has_component("gripper_left"));
+}
+
+TEST(RobotModel, RebuildReportsNoChangeForTheSameJoints)
+{
+  RobotModel model;
+  model.rebuild(kDxtrJoints);
+
+  EXPECT_FALSE(model.rebuild(kDxtrJoints));
+}
+
+TEST(RobotModel, RebuildIsIndependentOfJointOrder)
+{
+  RobotModel model;
+  model.rebuild(kDxtrJoints);
+
+  std::vector<std::string> shuffled = kDxtrJoints;
+  std::reverse(shuffled.begin(), shuffled.end());
+
+  EXPECT_FALSE(model.rebuild(shuffled));
+}
