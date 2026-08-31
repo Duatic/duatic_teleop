@@ -12,6 +12,8 @@ find_package(sensor_msgs REQUIRED)
 add_library(gamepad_core
   src/controller_manager_client.cpp
   src/controller_snapshot.cpp
+  src/drive_ramp.cpp
+  src/gripper_toggle.cpp
   src/jog_group.cpp
   src/joint_state_cache.cpp
   src/jtc_discovery.cpp
@@ -68,6 +70,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_teleop_mode test/test_teleop_mode.cpp)
   target_link_libraries(test_teleop_mode gamepad_core)
+
+  ament_add_gtest(test_drive_ramp test/test_drive_ramp.cpp)
+  target_link_libraries(test_drive_ramp gamepad_core)
+
+  ament_add_gtest(test_gripper_toggle test/test_gripper_toggle.cpp)
+  target_link_libraries(test_gripper_toggle gamepad_core)
 endif()
 
 ament_package()
