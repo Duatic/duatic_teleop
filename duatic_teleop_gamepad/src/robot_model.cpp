@@ -130,7 +130,7 @@ std::pair<std::string, ComponentType> RobotModel::classify(const std::string& jo
   return { "misc", ComponentType::Misc };
 }
 
-bool RobotModel::rebuild(const std::vector<std::string>& joint_names)
+void RobotModel::rebuild(const std::vector<std::string>& joint_names)
 {
   // Ordered, so the rebuilt list can be compared against the previous one directly and
   // the component order does not wander between rebuilds.
@@ -156,14 +156,7 @@ bool RobotModel::rebuild(const std::vector<std::string>& joint_names)
     rebuilt.push_back(std::move(entry.second));
   }
 
-  const bool changed =
-      rebuilt.size() != components_.size() ||
-      !std::equal(rebuilt.begin(), rebuilt.end(), components_.begin(), [](const Component& a, const Component& b) {
-        return a.name == b.name && a.type == b.type && a.joints == b.joints;
-      });
-
   components_ = std::move(rebuilt);
-  return changed;
 }
 
 std::vector<std::string> RobotModel::component_names(ComponentType type) const

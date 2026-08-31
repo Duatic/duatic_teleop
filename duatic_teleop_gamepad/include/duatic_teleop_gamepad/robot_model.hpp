@@ -67,11 +67,8 @@ std::string component_from_topic(const std::string& topic, const std::string& su
 class RobotModel
 {
 public:
-  /// @brief Rebuild the component list from the given joint names.
-  /// @return true if the result differs from the previous one, meaning anything derived
-  ///   from the component list (controller topics, publishers, focus targets) is stale
-  ///   and has to be discovered again.
-  bool rebuild(const std::vector<std::string>& joint_names);
+  /// Rebuild the component list from the given joint names.
+  void rebuild(const std::vector<std::string>& joint_names);
 
   /// Names of the components of one type, in sorted order.
   std::vector<std::string> component_names(ComponentType type) const;

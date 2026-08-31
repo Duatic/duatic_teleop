@@ -91,7 +91,7 @@ TEST(RobotModelClassify, JointsTheGamepadDoesNotDriveAreMisc)
 TEST(RobotModel, DerivesTheDxtrComponents)
 {
   RobotModel model;
-  EXPECT_TRUE(model.rebuild(kDxtrJoints));
+  model.rebuild(kDxtrJoints);
 
   EXPECT_EQ(model.component_names(ComponentType::Arm), (std::vector<std::string>{ "arm_left", "arm_right" }));
   EXPECT_EQ(model.component_names(ComponentType::Hip), (std::vector<std::string>{ "hip" }));
@@ -107,7 +107,7 @@ TEST(RobotModel, PicksUpAComponentThatArrivesLate)
   model.rebuild({ "clamp_left_finger_joint" });
   EXPECT_TRUE(model.component_names(ComponentType::Arm).empty());
 
-  EXPECT_TRUE(model.rebuild({ "clamp_left_finger_joint", "arm_left/shoulder_lift" }));
+  model.rebuild({ "clamp_left_finger_joint", "arm_left/shoulder_lift" });
   EXPECT_EQ(model.component_names(ComponentType::Arm), (std::vector<std::string>{ "arm_left" }));
 }
 
@@ -117,16 +117,8 @@ TEST(RobotModel, DropsAComponentThatGoesAway)
   model.rebuild({ "arm_left/shoulder_lift", "hip_yaw" });
   ASSERT_TRUE(model.has_component("hip"));
 
-  EXPECT_TRUE(model.rebuild({ "arm_left/shoulder_lift" }));
+  model.rebuild({ "arm_left/shoulder_lift" });
   EXPECT_FALSE(model.has_component("hip"));
-}
-
-TEST(RobotModel, RebuildReportsNoChangeForTheSameJoints)
-{
-  RobotModel model;
-  model.rebuild(kDxtrJoints);
-
-  EXPECT_FALSE(model.rebuild(kDxtrJoints));
 }
 
 TEST(RobotModel, RebuildIsIndependentOfJointOrder)
@@ -134,10 +126,13 @@ TEST(RobotModel, RebuildIsIndependentOfJointOrder)
   RobotModel model;
   model.rebuild(kDxtrJoints);
 
+  const auto arms = model.component_names(ComponentType::Arm);
+
   std::vector<std::string> shuffled = kDxtrJoints;
   std::reverse(shuffled.begin(), shuffled.end());
+  model.rebuild(shuffled);
 
-  EXPECT_FALSE(model.rebuild(shuffled));
+  EXPECT_EQ(model.component_names(ComponentType::Arm), arms);
 }
 
 TEST(ComponentFromTopic, ReadsTheLeadingSegment)
