@@ -84,29 +84,43 @@ class GamepadInterface(Node):
         self.gamepad_feedback = GamepadFeedback(self)
 
         # Joy input is processed at a fixed 100 Hz — the /joy topic rate. Controllers
-        # that need higher-rate output (e.g. JTC) run a separate tick() at dt_fast.
+        # that stream their own output (e.g. JTC) run a separate tick() at jtc_dt.
         self.dt = 1.0 / 100.0
-        # dt_fast drives the JTC publish timer. Must match the hardware control loop
-        # so the JTC receives one new target per controller cycle and never brakes.
-        self.dt_fast = self.duatic_robots_helper.get_dt()
+        # jtc_dt drives the JTC trajectory stream. Each point carries the commanded
+        # velocity and time_from_start = jtc_dt, so the JTC interpolates between points
+        # at its own update rate and coasts through a late message instead of braking to
+        # a stop. The stream rate is therefore independent of the hardware control rate.
+        jtc_publish_rate = self.declare_parameter("jtc_publish_rate", 100.0).value
+        self.jtc_dt = 1.0 / jtc_publish_rate
 
         self.create_timer(self.dt, self.process_joy_input)
-        self.create_timer(self.dt_fast, self._tick_jtc)
+        self.create_timer(self.jtc_dt, self._tick_jtc)
         self.get_logger().info(
             f"Gamepad Interface Initialized "
-            f"(joy: {1.0 / self.dt:.0f} Hz, JTC: {1.0 / self.dt_fast:.0f} Hz)."
+            f"(joy: {1.0 / self.dt:.0f} Hz, JTC: {jtc_publish_rate:.0f} Hz)."
         )
 
-    def _button(self, msg, name, default=0):
-        """Safely read a mapped button value, returning default if out of range.
+    def button(self, msg, name, default=0):
+        """Read a mapped button value, returning default if out of range.
 
-        Guards against gamepads that report fewer buttons than the config maps,
-        which would otherwise raise IndexError and kill the teleop callback.
+        Gamepads may report fewer buttons than the config maps, which would otherwise
+        raise IndexError and kill the teleop callback.
         """
         idx = self.button_mapping.get(name)
         if idx is None or idx >= len(msg.buttons):
             return default
         return msg.buttons[idx]
+
+    def axis(self, msg, group, name, default=0.0):
+        """Read a mapped axis value, returning default if out of range.
+
+        Same contract as button(): a pad that reports fewer axes than the config maps
+        must not raise out of the teleop callback.
+        """
+        idx = self.axis_mapping.get(group, {}).get(name)
+        if idx is None or idx >= len(msg.axes):
+            return default
+        return msg.axes[idx]
 
     def joy_callback(self, msg: Joy):
         """Store latest joystick message."""
@@ -125,7 +139,7 @@ class GamepadInterface(Node):
         self._update_focus(msg)
 
         # Check deadman switch and track state changes
-        current_deadman_state = self._button(msg, "dead_man_switch") == 1
+        current_deadman_state = self.button(msg, "dead_man_switch") == 1
         deadman_just_released = self.deadman_active and not current_deadman_state
         deadman_just_pressed = not self.deadman_active and current_deadman_state
         self.deadman_active = current_deadman_state
@@ -141,8 +155,8 @@ class GamepadInterface(Node):
                 self._stop_move_commands()
         else:
             # Allowed to move -> Process Home/Sleep commands
-            move_home_pressed = self._button(msg, "move_home")
-            move_sleep_pressed = self._button(msg, "move_sleep")
+            move_home_pressed = self.button(msg, "move_home")
+            move_sleep_pressed = self.button(msg, "move_sleep")
 
             if move_home_pressed:
                 self.move_home_pub.publish(Bool(data=True))
@@ -157,7 +171,7 @@ class GamepadInterface(Node):
                 self._stop_move_commands()
 
         # Ensure switching happens only on button press (down event) and not while held down
-        switch_pressed = self._button(msg, "switch_controller")
+        switch_pressed = self.button(msg, "switch_controller")
         if switch_pressed == 1 and self.last_menu_button_state == 0:
             self.controller_manager.switch_to_next_controller()
             # Reset current controller after switching
