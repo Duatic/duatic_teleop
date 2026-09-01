@@ -46,7 +46,6 @@
 #include "duatic_teleop_gamepad/jog_group.hpp"
 #include "duatic_teleop_gamepad/joint_state_cache.hpp"
 #include "duatic_teleop_gamepad/jtc_discovery.hpp"
-#include "duatic_teleop_gamepad/robot_model.hpp"
 #include "duatic_teleop_gamepad/teleop_mode.hpp"
 
 namespace duatic_teleop_gamepad
@@ -105,7 +104,6 @@ private:
   GamepadConfig config_;
 
   JointStateCache joint_states_;
-  RobotModel robot_;
   std::unique_ptr<ControllerManagerClient> controllers_;
   std::unique_ptr<JtcDiscovery> discovery_;
 
@@ -115,6 +113,9 @@ private:
   GripperToggle gripper_;
 
   std::string focus_;
+
+  /// Whether the operator has picked a focus, after which discovery stops choosing one.
+  bool focus_chosen_{ false };
   std::vector<TeleopMode> available_;
   std::optional<TeleopMode> mode_;
   std::optional<TeleopMode> pending_mode_;

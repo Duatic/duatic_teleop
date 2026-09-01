@@ -133,11 +133,3 @@ TEST(JointStateCache, HasAllRequiresEveryJoint)
   EXPECT_FALSE(cache.has_all({ "a", "c" }));
   EXPECT_TRUE(cache.has_all({}));
 }
-
-TEST(JointStateCache, JointNamesAreSorted)
-{
-  auto cache = make_cache();
-  cache.update(make_state({ "c", "a", "b" }, { 1.0, 2.0, 3.0 }), at(0.0));
-
-  EXPECT_EQ(cache.joint_names(), (std::vector<std::string>{ "a", "b", "c" }));
-}

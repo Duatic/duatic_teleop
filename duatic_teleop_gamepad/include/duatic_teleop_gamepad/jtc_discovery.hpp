@@ -42,14 +42,24 @@ struct JtcTopic
   std::string component;
 };
 
-/// @brief Pick out the joint_trajectory topics belonging to the given components.
+/// @brief The component a controller topic belongs to.
+/// @param topic Full topic name, expected to be "<component>/<suffix>".
+/// @param suffix The controller-and-message part that follows the component.
+/// @return The component name, or empty if the topic does not have that shape.
+///
+/// Read from the leading segment rather than by searching backwards from the suffix, so a
+/// component whose name happens to end in another one's cannot claim its topic.
+std::string component_from_topic(const std::string& topic, const std::string& suffix);
+
+/// @brief Pick out every joint_trajectory topic on the graph, naming the component each
+///   one drives.
 /// @param topic_names Every topic currently on the graph.
-/// @param component_names Components to keep, matched against the controller's name
-///   suffix. A robot whose arm has no component name keeps every topic, because that is
-///   what a flat single-arm layout looks like.
 /// @param node_namespace Namespace to search under, "/" for none.
+///
+/// The component is read off the controller's own name rather than checked against a list
+/// of components the robot is believed to have: a spawned trajectory controller is the
+/// authority on what can be jogged, and its name already says what it drives.
 std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_names,
-                                        const std::vector<std::string>& component_names,
                                         const std::string& node_namespace);
 
 /// Works out which joint trajectory controllers exist and which joints each one drives.
@@ -76,9 +86,9 @@ public:
   /// @param on_changed Called whenever the target list changes, so publishers can follow.
   JtcDiscovery(rclcpp::Node& node, std::function<void()> on_changed);
 
-  /// Bring the known targets in line with the components that currently exist. Cheap and
-  /// idempotent, so it suits being called periodically as well as on a component change.
-  void reconcile(const std::vector<std::string>& component_names);
+  /// Bring the known targets in line with the controllers currently on the graph. Cheap
+  /// and idempotent, so it suits being called periodically.
+  void reconcile();
 
   const std::vector<Target>& targets() const;
 

@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "duatic_teleop_gamepad/controller_snapshot.hpp"
-#include "duatic_teleop_gamepad/robot_model.hpp"
 
 namespace duatic_teleop_gamepad
 {
@@ -44,12 +43,11 @@ enum class TeleopMode
 
 std::string to_string(TeleopMode mode);
 
-/// @brief Modes this robot can offer, given its shape and the controllers that are loaded.
+/// @brief Modes this robot can offer, given the controllers that are loaded.
 ///
-/// Both halves matter: a robot with no arms cannot jog whatever is loaded, and a robot with
-/// arms cannot jog if no trajectory controller was spawned. Derived from the live component
-/// list, so a mode appears once the hardware backing it does.
-std::vector<TeleopMode> available_modes(const RobotModel& model, const ControllerSnapshot& controllers);
+/// A spawned controller is the whole test: one exists only where there is something for it
+/// to drive, so a mode appears as soon as the controller backing it does.
+std::vector<TeleopMode> available_modes(const ControllerSnapshot& controllers);
 
 /// @brief Controllers that have to be active for a mode to work.
 /// @return Resolved controller names, empty if none of them are loaded.

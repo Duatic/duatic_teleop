@@ -70,8 +70,6 @@ public:
   bool has_all(const std::vector<std::string>& names) const;
 
   /// Every known joint name, sorted so the result is stable across calls.
-  std::vector<std::string> joint_names() const;
-
 private:
   struct Entry
   {

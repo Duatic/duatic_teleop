@@ -56,16 +56,6 @@ const std::vector<TeleopMode>& all_modes()
   return modes;
 }
 
-bool has_arms(const RobotModel& model)
-{
-  return !model.component_names(ComponentType::Arm).empty();
-}
-
-bool has_platform(const RobotModel& model)
-{
-  return !model.component_names(ComponentType::Platform).empty();
-}
-
 void append_unique(std::vector<std::string>& into, const std::vector<std::string>& from)
 {
   for (const auto& value : from) {
@@ -90,19 +80,16 @@ std::string to_string(TeleopMode mode)
   return "drive";
 }
 
-std::vector<TeleopMode> available_modes(const RobotModel& model, const ControllerSnapshot& controllers)
+std::vector<TeleopMode> available_modes(const ControllerSnapshot& controllers)
 {
   std::vector<TeleopMode> available;
 
   for (const auto mode : all_modes()) {
-    // The robot has to be shaped for the mode and carry a controller that implements it.
-    // Either half missing means the mode cannot be offered, however the other half looks.
-    const bool shaped = mode == TeleopMode::Drive ? has_platform(model) : has_arms(model);
     const auto& bases = mode == TeleopMode::Freedrive ? freedrive_bases()
                         : mode == TeleopMode::Jog     ? jog_bases()
                                                       : drive_bases();
 
-    if (shaped && !controllers.matching(bases).empty()) {
+    if (!controllers.matching(bases).empty()) {
       available.push_back(mode);
     }
   }

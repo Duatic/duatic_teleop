@@ -27,6 +27,7 @@
 #include "duatic_teleop_gamepad/jtc_discovery.hpp"
 
 using duatic_teleop_gamepad::JtcTopic;
+using duatic_teleop_gamepad::component_from_topic;
 using duatic_teleop_gamepad::select_jtc_topics;
 
 namespace
@@ -55,18 +56,30 @@ std::vector<std::string> topics_of(const std::vector<JtcTopic>& selected)
 
 }  // namespace
 
-TEST(SelectJtcTopics, PicksOnlyTheRequestedComponents)
+TEST(SelectJtcTopics, PicksEveryTrajectoryController)
 {
-  const auto selected = select_jtc_topics(kDxtrTopics, { "arm_left", "arm_right" }, "/");
+  const auto selected = select_jtc_topics(kDxtrTopics, "/");
 
   EXPECT_EQ(topics_of(selected), (std::vector<std::string>{ "/joint_trajectory_controller_arm_left/joint_trajectory",
-                                                            "/joint_trajectory_controller_arm_right/"
-                                                            "joint_trajectory" }));
+                                                            "/joint_trajectory_controller_arm_right/joint_trajectory",
+                                                            "/joint_trajectory_controller_hip/joint_trajectory" }));
+}
+
+TEST(SelectJtcTopics, NamesTheComponentFromTheControllerSuffix)
+{
+  const auto selected = select_jtc_topics(kDxtrTopics, "/");
+
+  std::vector<std::string> components;
+  for (const auto& topic : selected) {
+    components.push_back(topic.component);
+  }
+
+  EXPECT_EQ(components, (std::vector<std::string>{ "arm_left", "arm_right", "hip" }));
 }
 
 TEST(SelectJtcTopics, ReportsTheOwningController)
 {
-  const auto selected = select_jtc_topics(kDxtrTopics, { "hip" }, "/");
+  const auto selected = select_jtc_topics({ "/joint_trajectory_controller_hip/joint_trajectory" }, "/");
 
   ASSERT_EQ(selected.size(), 1u);
   EXPECT_EQ(selected.front().controller, "joint_trajectory_controller_hip");
@@ -74,40 +87,35 @@ TEST(SelectJtcTopics, ReportsTheOwningController)
 
 TEST(SelectJtcTopics, IgnoresOtherTopicsOfTheSameController)
 {
-  const auto selected = select_jtc_topics(kDxtrTopics, { "arm_left" }, "/");
+  const auto selected = select_jtc_topics(kDxtrTopics, "/");
 
   // controller_state sits under the same controller and must not be mistaken for a
   // command topic.
-  EXPECT_EQ(topics_of(selected),
-            (std::vector<std::string>{ "/joint_trajectory_controller_arm_left/joint_trajectory" }));
+  for (const auto& topic : topics_of(selected)) {
+    EXPECT_NE(topic.find("/joint_trajectory"), std::string::npos);
+    EXPECT_EQ(topic.find("controller_state"), std::string::npos);
+  }
 }
 
 TEST(SelectJtcTopics, IgnoresOtherControllers)
 {
-  const auto selected = select_jtc_topics(kDxtrTopics, { "arm_left", "arm_right", "hip", "platform" }, "/");
-
-  EXPECT_EQ(selected.size(), 3u);
+  EXPECT_TRUE(select_jtc_topics({ "/mecanum_drive_controller/joint_trajectory" }, "/").empty());
 }
 
-TEST(SelectJtcTopics, NoComponentsSelectsNothing)
+TEST(SelectJtcTopics, NoTopicsSelectsNothing)
 {
-  EXPECT_TRUE(select_jtc_topics(kDxtrTopics, {}, "/").empty());
+  EXPECT_TRUE(select_jtc_topics({}, "/").empty());
 }
 
 TEST(SelectJtcTopics, AFlatRobotKeepsItsUnsuffixedTopic)
 {
   const std::vector<std::string> topics = { "/joint_trajectory_controller/joint_trajectory" };
 
-  // A single-arm robot's component has no name, so there is no suffix to match on.
-  EXPECT_EQ(topics_of(select_jtc_topics(topics, { "" }, "/")),
-            (std::vector<std::string>{ "/joint_trajectory_controller/joint_trajectory" }));
-}
+  // A single-arm robot spawns the bare controller, so its component has no name.
+  const auto selected = select_jtc_topics(topics, "/");
 
-TEST(SelectJtcTopics, ANamedComponentDoesNotMatchAnUnsuffixedController)
-{
-  const std::vector<std::string> topics = { "/joint_trajectory_controller/joint_trajectory" };
-
-  EXPECT_TRUE(select_jtc_topics(topics, { "arm_left" }, "/").empty());
+  ASSERT_EQ(selected.size(), 1u);
+  EXPECT_TRUE(selected.front().component.empty());
 }
 
 TEST(SelectJtcTopics, RespectsANamespace)
@@ -117,20 +125,17 @@ TEST(SelectJtcTopics, RespectsANamespace)
     "/joint_trajectory_controller_arm_left/joint_trajectory",
   };
 
-  EXPECT_EQ(topics_of(select_jtc_topics(topics, { "arm_left" }, "/robot2")),
+  EXPECT_EQ(topics_of(select_jtc_topics(topics, "/robot2")),
             (std::vector<std::string>{ "/robot2/joint_trajectory_controller_arm_left/joint_trajectory" }));
 
-  EXPECT_EQ(topics_of(select_jtc_topics(topics, { "arm_left" }, "/")),
+  EXPECT_EQ(topics_of(select_jtc_topics(topics, "/")),
             (std::vector<std::string>{ "/joint_trajectory_controller_arm_left/joint_trajectory" }));
 }
 
-TEST(SelectJtcTopics, ComponentNamesMatchOnAWholeSuffix)
+TEST(SelectJtcTopics, TheComponentIsSeparatedByAnUnderscore)
 {
-  const std::vector<std::string> topics = { "/joint_trajectory_controller_arm_left/joint_trajectory" };
-
-  // "arm" is a prefix of "arm_left" but not the component this controller drives.
-  EXPECT_TRUE(select_jtc_topics(topics, { "arm" }, "/").empty());
-  EXPECT_TRUE(select_jtc_topics(topics, { "left" }, "/").empty());
+  // "joint_trajectory_controller2" is a different controller, not the component "2".
+  EXPECT_TRUE(select_jtc_topics({ "/joint_trajectory_controller2/joint_trajectory" }, "/").empty());
 }
 
 TEST(SelectJtcTopics, ResultIsSortedRegardlessOfGraphOrder)
@@ -138,6 +143,33 @@ TEST(SelectJtcTopics, ResultIsSortedRegardlessOfGraphOrder)
   std::vector<std::string> shuffled = kDxtrTopics;
   std::reverse(shuffled.begin(), shuffled.end());
 
-  EXPECT_EQ(topics_of(select_jtc_topics(shuffled, { "arm_left", "arm_right", "hip" }, "/")),
-            topics_of(select_jtc_topics(kDxtrTopics, { "arm_left", "arm_right", "hip" }, "/")));
+  EXPECT_EQ(topics_of(select_jtc_topics(shuffled, "/")), topics_of(select_jtc_topics(kDxtrTopics, "/")));
+}
+
+TEST(ComponentFromTopic, ReadsTheLeadingSegment)
+{
+  EXPECT_EQ(component_from_topic("/arm_left/gripper_controller/commands", "gripper_controller/commands"), "arm_left");
+}
+
+TEST(ComponentFromTopic, RejectsATopicOfTheWrongShape)
+{
+  // Extra namespace in front, so the leading segment is not the component.
+  EXPECT_TRUE(component_from_topic("/robot2/arm_left/gripper_controller/commands", "gripper_controller/commands")
+                  .empty());
+
+  // No component segment at all.
+  EXPECT_TRUE(component_from_topic("/gripper_controller/commands", "gripper_controller/commands").empty());
+}
+
+TEST(ComponentFromTopic, RejectsADifferentController)
+{
+  EXPECT_TRUE(component_from_topic("/arm_left/other_controller/commands", "gripper_controller/commands").empty());
+}
+
+TEST(ComponentFromTopic, DoesNotMatchOnATrailingSubstring)
+{
+  // Searching backwards from the suffix would happily return "my_gripper" here; the shape
+  // check is what makes the answer the whole leading segment or nothing.
+  EXPECT_EQ(component_from_topic("/my_arm_left/gripper_controller/commands", "gripper_controller/commands"),
+            "my_arm_left");
 }

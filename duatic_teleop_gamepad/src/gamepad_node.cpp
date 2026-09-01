@@ -89,13 +89,7 @@ void GamepadNode::on_joint_states(sensor_msgs::msg::JointState::ConstSharedPtr m
 void GamepadNode::discover()
 {
   joint_states_.expire(now());
-  robot_.rebuild(joint_states_.joint_names());
-
-  auto components = robot_.component_names(ComponentType::Arm);
-  const auto hips = robot_.component_names(ComponentType::Hip);
-  components.insert(components.end(), hips.begin(), hips.end());
-
-  discovery_->reconcile(components);
+  discovery_->reconcile();
 
   // Unconditionally, because a gripper controller spawned after the robot's joint set has
   // settled changes no joint name, and keying this off a component change would leave that
@@ -108,7 +102,7 @@ void GamepadNode::discover()
     return;
   }
 
-  available_ = available_modes(robot_, snapshot);
+  available_ = available_modes(snapshot);
 
   // A requested mode owns the state machine until its controllers are actually running,
   // otherwise adopting whatever is active right now would undo the switch that is still in
@@ -165,11 +159,12 @@ void GamepadNode::rebuild_jog_groups()
                                    create_publisher<trajectory_msgs::msg::JointTrajectory>(target.topic, 10) });
   }
 
-  if (focus_.empty() && !jog_groups_.empty()) {
-    const auto arms = robot_.component_names(ComponentType::Arm);
-    set_focus(std::find(arms.begin(), arms.end(), "arm_left") != arms.end() ? "arm_left"
-              : arms.empty()                                               ? jog_groups_.begin()->first
-                                                                           : arms.front());
+  // Re-applied on every rebuild until the operator picks for themselves, because the jog
+  // groups appear one parameter response at a time and in no particular order. Settling on
+  // whichever one happened to register first would leave the focus on the hip whenever its
+  // controller answered before the arms.
+  if (!focus_chosen_ && !jog_groups_.empty()) {
+    set_focus(jog_groups_.count("arm_left") != 0 ? "arm_left" : jog_groups_.begin()->first);
   }
 
   reset_active_mode();
@@ -180,9 +175,9 @@ void GamepadNode::rebuild_gripper_publishers()
   for (const auto& entry : get_topic_names_and_types()) {
     const auto component = component_from_topic(entry.first, kGripperTopicSuffix);
 
-    // Checked against the robot's own components, so a topic that merely looks like one
-    // cannot register a gripper for a component that does not exist.
-    if (component.empty() || !robot_.has_component(component) || gripper_pubs_.count(component) != 0) {
+    // Checked against the jog groups, so a topic that merely looks like one cannot register
+    // a gripper for a component the gamepad cannot even focus.
+    if (component.empty() || jog_groups_.count(component) == 0 || gripper_pubs_.count(component) != 0) {
       continue;
     }
 
@@ -385,8 +380,8 @@ void GamepadNode::set_focus(const std::string& component)
     return;
   }
 
-  if (!robot_.has_component(component)) {
-    RCLCPP_WARN(get_logger(), "Cannot focus %s: this robot has no such component", component.c_str());
+  if (jog_groups_.count(component) == 0) {
+    RCLCPP_WARN(get_logger(), "Cannot focus %s: no trajectory controller drives it", component.c_str());
     return;
   }
 
@@ -422,6 +417,7 @@ void GamepadNode::update_focus(const sensor_msgs::msg::Joy& msg)
   }();
 
   if (direction != nullptr && !dpad_held_) {
+    focus_chosen_ = true;
     set_focus(*direction);
   }
 

@@ -34,9 +34,9 @@ ros2 run duatic_teleop_gamepad gamepad_interface --ros-args --params-file $(ros2
 ```
 
 The node starts immediately and wires itself up as the robot appears, so it can be launched
-in any order relative to the robot. It keeps re-checking which components the robot has,
-which controllers are loaded and which trajectory topics exist, so a component or controller
-that arrives late is picked up and one that goes away is dropped, without a restart.
+in any order relative to the robot. It keeps re-checking which controllers are loaded and
+which trajectory topics exist, so a controller that arrives late is picked up and one that
+goes away is dropped, without a restart.
 
 Every setting lives in [`config/gamepad_config.yaml`](../config/gamepad_config.yaml) and is a
 normal ROS parameter, so it can be overridden from a launch file or with `ros2 param set`.
@@ -96,9 +96,15 @@ the newly active controller first, so motion never resumes from a stale target.
 
 ## Modes and controllers
 
-Which modes are on offer depends on the robot's shape and on which controllers are loaded:
-manipulation and freedrive need an arm, driving needs a platform, and each also needs its
-controller to have been spawned.
+Which modes are on offer depends on which controllers are loaded: jogging needs a trajectory
+controller, freedrive needs a freedrive controller, and driving needs a drive controller. A
+controller is spawned only where there is something for it to drive, so its presence is the
+whole test.
+
+The component each trajectory controller drives is read from its own name: a controller
+called `joint_trajectory_controller_arm_left` drives `arm_left`, and that is the name the
+D-Pad focuses. A single-arm robot spawning the bare `joint_trajectory_controller` has one
+unnamed component.
 
 `managed_controllers` lists the controllers this node is allowed to switch. Anything not
 matching one of those prefixes is invisible to it and can never be deactivated by a mode

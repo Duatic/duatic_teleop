@@ -26,6 +26,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
+#include <string>
 #include <utility>
 
 #include <rcpputils/split.hpp>
@@ -48,22 +50,24 @@ constexpr std::chrono::seconds kJointsRequestTimeout{ 5 };
 
 }  // namespace
 
-std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_names,
-                                        const std::vector<std::string>& component_names,
-                                        const std::string& node_namespace)
+std::string component_from_topic(const std::string& topic, const std::string& suffix)
+{
+  const auto segments = rcpputils::split(topic, '/', true);
+  const auto expected = rcpputils::split(suffix, '/', true);
+
+  if (segments.size() != expected.size() + 1) {
+    return {};
+  }
+
+  return std::equal(expected.begin(), expected.end(), std::next(segments.begin())) ? segments.front() : std::string{};
+}
+
+std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_names, const std::string& node_namespace)
 {
   std::vector<JtcTopic> selected;
 
-  if (component_names.empty()) {
-    return selected;
-  }
-
-  // A component with no name is a flat single-arm robot, whose controller topic carries no
-  // component suffix to match against, so every candidate topic belongs to it.
-  const bool accept_any =
-      std::any_of(component_names.begin(), component_names.end(), [](const std::string& name) { return name.empty(); });
-
   const auto expected_namespace = rcpputils::split(node_namespace, '/', true);
+  const auto prefix_length = std::string(kControllerPrefix).size();
 
   for (const auto& topic : topic_names) {
     const auto segments = rcpputils::split(topic, '/', true);
@@ -82,20 +86,20 @@ std::vector<JtcTopic> select_jtc_topics(const std::vector<std::string>& topic_na
       continue;
     }
 
-    // The controller's name is the prefix plus the component, exactly. Matching on a
-    // trailing substring instead would let the component "left" claim the controller for
-    // "arm_left".
-    const auto match = std::find_if(component_names.begin(), component_names.end(),
-                                    [&controller](const std::string& component) {
-                                      return !component.empty() &&
-                                             controller == kControllerPrefix + std::string("_") + component;
-                                    });
-
-    if (match != component_names.end()) {
-      selected.push_back({ topic, controller, *match });
-    } else if (accept_any) {
-      selected.push_back({ topic, controller, {} });
+    // The component is whatever the controller's name carries after the prefix. A flat
+    // single-arm robot spawns the bare controller and so has no component name at all,
+    // which is the same empty name its trajectory topic is keyed under.
+    std::string component = controller.substr(prefix_length);
+    if (!component.empty()) {
+      // Only an underscore separates the two, so "joint_trajectory_controller2" is a
+      // different controller rather than the component "2".
+      if (component.front() != '_') {
+        continue;
+      }
+      component.erase(0, 1);
     }
+
+    selected.push_back({ topic, controller, component });
   }
 
   std::sort(selected.begin(), selected.end(),
@@ -108,14 +112,14 @@ JtcDiscovery::JtcDiscovery(rclcpp::Node& node, std::function<void()> on_changed)
 {
 }
 
-void JtcDiscovery::reconcile(const std::vector<std::string>& component_names)
+void JtcDiscovery::reconcile()
 {
   std::vector<std::string> topic_names;
   for (const auto& entry : node_.get_topic_names_and_types()) {
     topic_names.push_back(entry.first);
   }
 
-  const auto wanted = select_jtc_topics(topic_names, component_names, node_.get_effective_namespace());
+  const auto wanted = select_jtc_topics(topic_names, node_.get_effective_namespace());
 
   const auto still_wanted = [&wanted](const Target& target) {
     return std::any_of(wanted.begin(), wanted.end(),

@@ -27,14 +27,12 @@
 #include "duatic_teleop_gamepad/teleop_mode.hpp"
 
 using duatic_teleop_gamepad::available_modes;
-using duatic_teleop_gamepad::ComponentType;
 using duatic_teleop_gamepad::ControllerSnapshot;
 using duatic_teleop_gamepad::ControllerState;
 using duatic_teleop_gamepad::infer_mode;
 using duatic_teleop_gamepad::next_mode;
 using duatic_teleop_gamepad::plan_switch;
 using duatic_teleop_gamepad::required_controllers;
-using duatic_teleop_gamepad::RobotModel;
 using duatic_teleop_gamepad::TeleopMode;
 
 namespace
@@ -46,27 +44,6 @@ const std::vector<std::string> kManagedBases = {
 };
 
 const std::vector<std::string> kProtectedBases = { "mecanum_drive_controller", "platform_velocity_controller" };
-
-RobotModel mobile_manipulator()
-{
-  RobotModel model;
-  model.rebuild({ "arm_left/shoulder_lift", "arm_right/shoulder_lift", "hip_yaw", "wheel_front_left" });
-  return model;
-}
-
-RobotModel arms_only()
-{
-  RobotModel model;
-  model.rebuild({ "arm_left/shoulder_lift", "hip_yaw" });
-  return model;
-}
-
-RobotModel base_only()
-{
-  RobotModel model;
-  model.rebuild({ "wheel_front_left", "wheel_front_right" });
-  return model;
-}
 
 /// A dxtr listing with every controller inactive unless named.
 ControllerSnapshot snapshot_with(const std::vector<std::string>& active)
@@ -89,6 +66,17 @@ ControllerSnapshot snapshot_with(const std::vector<std::string>& active)
   return ControllerSnapshot::build(controllers, kManagedBases);
 }
 
+/// A listing of exactly these controllers, all inactive.
+ControllerSnapshot snapshot_of(const std::vector<std::string>& names)
+{
+  std::vector<ControllerState> controllers;
+  for (const auto& name : names) {
+    controllers.push_back({ name, "inactive" });
+  }
+
+  return ControllerSnapshot::build(controllers, kManagedBases);
+}
+
 const std::vector<std::string> kAllJtcs = { "joint_trajectory_controller_arm_left",
                                             "joint_trajectory_controller_arm_right",
                                             "joint_trajectory_controller_hip" };
@@ -97,30 +85,35 @@ const std::vector<std::string> kAllJtcs = { "joint_trajectory_controller_arm_lef
 
 TEST(TeleopMode, AMobileManipulatorOffersEverything)
 {
-  EXPECT_EQ(available_modes(mobile_manipulator(), snapshot_with({})),
+  EXPECT_EQ(available_modes(snapshot_with({})),
             (std::vector<TeleopMode>{ TeleopMode::Freedrive, TeleopMode::Jog, TeleopMode::Drive }));
 }
 
-TEST(TeleopMode, ARobotWithoutWheelsCannotDrive)
+TEST(TeleopMode, WithoutADriveControllerThereIsNoDriving)
 {
-  EXPECT_EQ(available_modes(arms_only(), snapshot_with({})),
+  EXPECT_EQ(available_modes(snapshot_of({ "freedrive_controller", "joint_trajectory_controller_arm_left" })),
             (std::vector<TeleopMode>{ TeleopMode::Freedrive, TeleopMode::Jog }));
 }
 
-TEST(TeleopMode, ARobotWithoutArmsCanOnlyDrive)
+TEST(TeleopMode, ADriveControllerAloneOffersOnlyDriving)
 {
-  EXPECT_EQ(available_modes(base_only(), snapshot_with({})), (std::vector<TeleopMode>{ TeleopMode::Drive }));
+  EXPECT_EQ(available_modes(snapshot_of({ "mecanum_drive_controller" })),
+            (std::vector<TeleopMode>{ TeleopMode::Drive }));
 }
 
-TEST(TeleopMode, AModeNeedsItsControllerLoadedAsWellAsTheHardware)
+TEST(TeleopMode, AModeNeedsItsOwnControllerLoaded)
 {
-  const auto without_freedrive = ControllerSnapshot::build(
-      { { "joint_trajectory_controller_arm_left", "inactive" }, { "mecanum_drive_controller", "inactive" } },
-      kManagedBases);
-
-  // The arms are there, but nothing spawned a freedrive controller to use them with.
-  EXPECT_EQ(available_modes(mobile_manipulator(), without_freedrive),
+  // Trajectory controllers are there, but nothing spawned a freedrive controller.
+  EXPECT_EQ(available_modes(snapshot_of({ "joint_trajectory_controller_arm_left", "mecanum_drive_controller" })),
             (std::vector<TeleopMode>{ TeleopMode::Jog, TeleopMode::Drive }));
+}
+
+TEST(TeleopMode, AHipIsJoggableWithoutAnyArm)
+{
+  // The joints behind a controller are its own business; a trajectory controller existing
+  // is the whole test for whether jogging is on offer.
+  EXPECT_EQ(available_modes(snapshot_of({ "joint_trajectory_controller_hip" })),
+            (std::vector<TeleopMode>{ TeleopMode::Jog }));
 }
 
 TEST(TeleopMode, DrivingKeepsTheArmsHeld)
@@ -135,7 +128,7 @@ TEST(TeleopMode, DrivingKeepsTheArmsHeld)
 
 TEST(TeleopMode, InferReadsTheActiveControllers)
 {
-  const auto available = available_modes(mobile_manipulator(), snapshot_with({}));
+  const auto available = available_modes(snapshot_with({}));
 
   EXPECT_EQ(infer_mode(available, snapshot_with({ "freedrive_controller" })), TeleopMode::Freedrive);
   EXPECT_EQ(infer_mode(available, snapshot_with(kAllJtcs)), TeleopMode::Jog);
@@ -143,7 +136,7 @@ TEST(TeleopMode, InferReadsTheActiveControllers)
 
 TEST(TeleopMode, DrivingWithHeldArmsIsNotMistakenForJogging)
 {
-  const auto available = available_modes(mobile_manipulator(), snapshot_with({}));
+  const auto available = available_modes(snapshot_with({}));
 
   auto active = kAllJtcs;
   active.push_back("mecanum_drive_controller");
@@ -153,7 +146,7 @@ TEST(TeleopMode, DrivingWithHeldArmsIsNotMistakenForJogging)
 
 TEST(TeleopMode, InferNeedsEveryRequiredControllerActive)
 {
-  const auto available = available_modes(mobile_manipulator(), snapshot_with({}));
+  const auto available = available_modes(snapshot_with({}));
 
   // Only one of the three trajectory controllers is up, so the robot is not jogging.
   EXPECT_FALSE(infer_mode(available, snapshot_with({ "joint_trajectory_controller_arm_left" })).has_value());
@@ -161,7 +154,7 @@ TEST(TeleopMode, InferNeedsEveryRequiredControllerActive)
 
 TEST(TeleopMode, InferReportsNothingWhenIdle)
 {
-  const auto available = available_modes(mobile_manipulator(), snapshot_with({}));
+  const auto available = available_modes(snapshot_with({}));
   EXPECT_FALSE(infer_mode(available, snapshot_with({})).has_value());
 }
 

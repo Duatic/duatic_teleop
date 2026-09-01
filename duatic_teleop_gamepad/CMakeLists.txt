@@ -22,7 +22,6 @@ add_library(gamepad_core
   src/jog_group.cpp
   src/joint_state_cache.cpp
   src/jtc_discovery.cpp
-  src/robot_model.cpp
   src/stick_mapping.cpp
   src/teleop_mode.cpp
 )
@@ -71,8 +70,6 @@ if(BUILD_TESTING)
   ament_add_gtest(test_joint_state_cache test/test_joint_state_cache.cpp)
   target_link_libraries(test_joint_state_cache gamepad_core)
 
-  ament_add_gtest(test_robot_model test/test_robot_model.cpp)
-  target_link_libraries(test_robot_model gamepad_core)
 
   ament_add_gtest(test_controller_snapshot test/test_controller_snapshot.cpp)
   target_link_libraries(test_controller_snapshot gamepad_core)

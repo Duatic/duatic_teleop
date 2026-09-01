@@ -86,17 +86,4 @@ bool JointStateCache::has_all(const std::vector<std::string>& names) const
                      [this](const std::string& name) { return entries_.count(name) > 0; });
 }
 
-std::vector<std::string> JointStateCache::joint_names() const
-{
-  std::vector<std::string> names;
-  names.reserve(entries_.size());
-
-  for (const auto& entry : entries_) {
-    names.push_back(entry.first);
-  }
-
-  std::sort(names.begin(), names.end());
-  return names;
-}
-
 }  // namespace duatic_teleop_gamepad
