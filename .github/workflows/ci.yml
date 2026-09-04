@@ -23,3 +23,15 @@ jobs:
       ros_distro: ${{ inputs.ros_distro }}
       badge_gist_id: ca9e04f4b6ad286dc6ebc1fd2651d76b
     secrets: inherit
+
+  changelog:
+    if: github.event_name == 'pull_request'
+    uses: Duatic/ci-workflows/.github/workflows/reusable_changelog_check.yml@v1
+
+  release-check:
+    if: github.event_name == 'pull_request'
+    uses: Duatic/ci-workflows/.github/workflows/reusable_release_check.yml@v1
+
+  title:
+    if: github.event_name == 'pull_request'
+    uses: Duatic/ci-workflows/.github/workflows/reusable_title_check.yml@v1

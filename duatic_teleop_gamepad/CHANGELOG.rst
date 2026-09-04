@@ -1,4 +1,8 @@
-1.0.0 First public release
---------------------------
+Upcoming changes
+----------------
+* docs: add CHANGELOG.rst and use the SPDX licence identifier
 
-* First public release of the duatic_teleop_gamepad package
+1.0.0 (2026-08-28)
+------------------
+* First public release of duatic_teleop_gamepad. Changes from this point on are recorded
+  in this file.

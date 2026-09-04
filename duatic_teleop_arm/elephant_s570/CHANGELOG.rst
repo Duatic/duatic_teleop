@@ -1,4 +1,8 @@
-1.0.0 First public release
---------------------------
+Upcoming changes
+----------------
+* docs: add CHANGELOG.rst and use the SPDX licence identifier
+* chore: add THIRD_PARTY_LICENSES.md for the Elephant Robotics meshes
 
-* First public release of the elephant_s570 package
+1.0.0 (2026-08-28)
+------------------
+* First public release of elephant_s570. Changes from this point on are recorded in this file.
