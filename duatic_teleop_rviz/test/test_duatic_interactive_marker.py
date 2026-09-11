@@ -21,31 +21,37 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import find_packages, setup
+"""Tests for the duatic_interactive_marker node."""
 
-package_name = "cartesian_interactive_marker"
+import rclpy
 
-setup(
-    name=package_name,
-    version="0.1.0",
-    packages=find_packages(exclude=["test"]),
-    data_files=[
-        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
-        ("share/" + package_name, ["package.xml"]),
-    ],
-    install_requires=["setuptools"],
-    zip_safe=True,
-    maintainer="Patrick Vonwirth",
-    maintainer_email="pvonwirth@duatic.com",
-    description=(
-        "Interactive RViz markers that mirror Cartesian poses (pose topics and/or TF frames), "
-        "publish target poses, and report pose error."
-    ),
-    license="BSD-3-Clause",
-    extras_require={"test": ["pytest"]},
-    entry_points={
-        "console_scripts": [
-            "cartesian_interactive_marker = cartesian_interactive_marker.node:main",
-        ],
-    },
-)
+from duatic_teleop_rviz.duatic_interactive_marker import DuaticInteractiveMarkerNode
+
+README_ROS_ARGS = [
+    "--ros-args",
+    "-p",
+    "pose_topics:=['/cartesian_pose_controller/flange/pose']",
+    "-p",
+    "target_topics:=['/cartesian_pose_controller/flange/target']",
+]
+
+
+def test_readme_usage_example_instantiates_without_error():
+    """Instantiate the node with the README's Usage example --ros-args and check it comes up."""
+    rclpy.init(args=README_ROS_ARGS)
+    try:
+        node = DuaticInteractiveMarkerNode()
+        try:
+            # give the node a tick to make sure nothing blows up once it's spinning
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+            assert len(node.targets) == 1
+            target = node.targets[0]
+            assert target.index == 0
+            assert target.pose_topic == "/cartesian_pose_controller/flange/pose"
+            assert target.target_topic == "/cartesian_pose_controller/flange/target"
+            assert not target.is_tf
+        finally:
+            node.destroy_node()
+    finally:
+        rclpy.shutdown()

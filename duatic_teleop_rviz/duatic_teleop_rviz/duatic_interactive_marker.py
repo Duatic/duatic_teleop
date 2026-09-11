@@ -26,39 +26,22 @@
 """
 ROS 2 node that mirrors a set of Cartesian poses as RViz interactive markers.
 
-'pose_topics', 'pose_tf', and 'target_topics' are all index-matched (same length, same i).
-At each index i, the target's "actual pose" comes from pose_topics[i] if it's non-empty;
-otherwise from a live TF lookup of the pose_tf[i] frame relative to 'tf_base_frame'. Set the
-unused one of the pair to "" for each index. An omitted array (default []) counts as
-all-empty-strings, i.e. unused at every index.
-
 Parameters:
-  - pose_topics (string array): topics to subscribe to (geometry_msgs/PoseStamped), or "" at
-    index i to use pose_tf[i] instead.
-  - pose_tf (string array): TF frame names (e.g. "arm_left/flange") to poll relative to
-    'tf_base_frame', used at index i only when pose_topics[i] is "".
-  - target_topics (string array): topics to publish the edited target pose to
-    (geometry_msgs/PoseStamped), index-matched with pose_topics/pose_tf as above.
-  - tf_base_frame (string, default: "base_link"): reference frame that pose_tf lookups and
-    their published target poses are expressed in.
-  - topics_prefix (string, default: the node's name): namespace prefix for all error topics,
-    e.g. "<topics_prefix>/<target_topic>_error".
-  - world_aligned_controls (bool, default: false): if true, the move/rotate handles of every
-    interactive marker stay aligned with the global reference frame instead of rotating along
-    with the marker's own orientation.
+  - pose_topics / pose_tf (string arrays): per-target actual-pose source, index-matched — a
+    PoseStamped topic, or (if pose_topics[i] is "") a TF frame polled relative to tf_base_frame.
+  - target_topics (string array): topics to publish each edited target pose to.
+  - tf_base_frame (string, default: "base_link"): frame for pose_tf lookups and their targets.
+  - topics_prefix (string, default: node name): namespace prefix for the error and reset_marker
+    topics.
+  - world_aligned_markers (bool, default: true): keep marker handles aligned with the global
+    frame instead of the marker's own orientation.
 
-Every target gets its own interactive marker, initialized to the first actual pose received —
-either the first message on its pose_topics[i] subscription (whose header.frame_id is then
-reused for the published target pose), or the first successful TF lookup of its pose_tf[i]
-frame (whose target pose is then expressed in 'tf_base_frame').
+Each target's interactive marker initializes to its received pose (pose or TF). Moving it
+republishes the displaced pose on the target_topics. A "<target_topic>_error" topic
+(geometry_msgs/Twist) reports the pose error of the target vs. the latest received pose.
 
-For every entry, moving the interactive marker publishes its new pose on the matching
-target_topics entry. A companion "<target_topic>_error" topic (geometry_msgs/Twist) reports
-the pose error between the target and the latest actual pose (from either source).
-
-Subscribing "<topics_prefix>/reset_marker" (std_msgs/String, comma-separated regular
-expressions) resets every target(s) whose pose_topic (or TF frame name), target_name, or
-marker_name matches any of the patterns, so the next actual pose re-initializes their marker.
+Subscribing "<topics_prefix>/reset_marker" (std_msgs/String, comma-separated regexes) resets
+any target whose pose source, target_name, or marker_name matches the provided patterns to its received pose.
 """
 
 import re
@@ -170,9 +153,9 @@ def pose_error(target: Pose, actual: Pose) -> Twist:
     return twist
 
 
-class InteractiveCartesianNode(Node):
+class DuaticInteractiveMarkerNode(Node):
     def __init__(self):
-        super().__init__("cartesian_teleop")
+        super().__init__("duatic_interactive_marker")
 
         dynamic_string_array = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter("pose_topics", [], dynamic_string_array)
@@ -180,14 +163,14 @@ class InteractiveCartesianNode(Node):
         self.declare_parameter("target_topics", [], dynamic_string_array)
         self.declare_parameter("tf_base_frame", "base_link")
         self.declare_parameter("topics_prefix", self.get_name())
-        self.declare_parameter("world_aligned_controls", True)
+        self.declare_parameter("world_aligned_markers", True)
 
         pose_topics = list(self.get_parameter("pose_topics").value)
         pose_tf = list(self.get_parameter("pose_tf").value)
         target_topics = list(self.get_parameter("target_topics").value)
         self.tf_base_frame: str = str(self.get_parameter("tf_base_frame").value)
         self.topics_prefix = self.get_parameter("topics_prefix").value.strip("/")
-        self.world_aligned_controls = self.get_parameter("world_aligned_controls").value
+        self.world_aligned_markers = self.get_parameter("world_aligned_markers").value
 
         # 'pose_topics' and 'pose_tf' are index-matched against 'target_topics': at index i,
         # pose_topics[i] is used if non-empty, otherwise pose_tf[i] (see module docstring). An
@@ -459,7 +442,7 @@ class InteractiveCartesianNode(Node):
                 control.orientation.z = z
                 control.orientation_mode = (
                     InteractiveMarkerControl.FIXED
-                    if self.world_aligned_controls
+                    if self.world_aligned_markers
                     else InteractiveMarkerControl.INHERIT
                 )
                 int_marker.controls.append(control)
@@ -492,7 +475,7 @@ class InteractiveCartesianNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = InteractiveCartesianNode()
+    node = DuaticInteractiveMarkerNode()
     rclpy.spin(node)
     rclpy.shutdown()
 
