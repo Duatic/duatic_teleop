@@ -24,23 +24,17 @@
 
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
-#include "duatic_teleop_gamepad/joint_state_cache.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+
+#include "duatic_teleop_gamepad/modes/base_mode.hpp"
 
 namespace duatic_teleop_gamepad
 {
-
-struct JogLimits
-{
-  /// Slew-rate limit on the commanded joint velocity, in rad/s^2.
-  double max_acceleration{ 5.0 };
-
-  /// How far the commanded position may run ahead of the measured one, in rad. Reaching it
-  /// means the arm is not keeping up, and the command is held back to stay within it.
-  double max_position_offset{ 0.1 };
-};
 
 /// The jog command for one joint trajectory controller.
 ///
@@ -50,9 +44,8 @@ struct JogLimits
 class JogGroup
 {
 public:
-  JogGroup(std::string topic, std::vector<std::string> joints);
+  explicit JogGroup(std::vector<std::string> joints);
 
-  const std::string& topic() const;
   const std::vector<std::string>& joints() const;
 
   /// @brief Seed the command from the measured state and stop all motion.
@@ -81,7 +74,6 @@ public:
   bool lagging() const;
 
 private:
-  std::string topic_;
   std::vector<std::string> joints_;
 
   std::vector<double> commanded_positions_;
@@ -91,6 +83,45 @@ private:
   bool ready_{ false };
   bool idle_{ true };
   bool lagging_{ false };
+};
+
+/// Jogs the focused component's joints straight from the sticks.
+///
+/// One group per trajectory controller the robot spawned, of which only the focused one is
+/// ever commanded. The others keep their command seeded from the measured state, so
+/// focusing one is not the moment its command has to be built.
+class JogMode : public BaseMode
+{
+public:
+  explicit JogMode(TeleopContext context);
+
+  std::string name() const override;
+  const std::vector<std::string>& controller_bases() const override;
+  void on_input(const GamepadInput& input, double dt) override;
+  void publish(double dt) override;
+  void reset() override;
+  void set_focus(const std::string& component) override;
+  void on_robot_changed() override;
+  double feedback() const override;
+
+private:
+  /// A jog group and the publisher its commands go out on, kept together so the two can
+  /// never fall out of step.
+  struct Target
+  {
+    JogGroup group;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher;
+  };
+
+  /// The target for the focused component, or nullptr when there is none.
+  Target* focused();
+
+  TeleopContext context_;
+
+  /// Keyed by the component each group drives, which is what focus selects.
+  std::map<std::string, Target> targets_;
+  std::string focus_;
+  double feedback_{ 0.0 };
 };
 
 }  // namespace duatic_teleop_gamepad

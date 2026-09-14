@@ -22,26 +22,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/jog_group.hpp"
+#include "duatic_teleop_gamepad/modes/jog_mode.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
+#include "duatic_teleop_gamepad/robot/jtc_discovery.hpp"
+
 namespace duatic_teleop_gamepad
 {
 
-JogGroup::JogGroup(std::string topic, std::vector<std::string> joints)
-  : topic_(std::move(topic)), joints_(std::move(joints))
+JogGroup::JogGroup(std::vector<std::string> joints) : joints_(std::move(joints))
 {
   commanded_positions_.assign(joints_.size(), 0.0);
   commanded_velocities_.assign(joints_.size(), 0.0);
   target_velocities_.assign(joints_.size(), 0.0);
-}
-
-const std::string& JogGroup::topic() const
-{
-  return topic_;
 }
 
 const std::vector<std::string>& JogGroup::joints() const
@@ -135,6 +131,97 @@ const std::vector<double>& JogGroup::commanded_velocities() const
 bool JogGroup::lagging() const
 {
   return lagging_;
+}
+
+JogMode::JogMode(TeleopContext context) : context_(context)
+{
+}
+
+std::string JogMode::name() const
+{
+  return "jog";
+}
+
+const std::vector<std::string>& JogMode::controller_bases() const
+{
+  static const std::vector<std::string> bases = { kTrajectoryControllerBase };
+  return bases;
+}
+
+void JogMode::on_input(const GamepadInput& input, [[maybe_unused]] double dt)
+{
+  auto* target = focused();
+  if (target == nullptr) {
+    return;
+  }
+
+  if (!input.motion_allowed) {
+    target->group.release();
+    return;
+  }
+
+  target->group.set_target_velocities(
+      stick_to_velocities(input.sticks, target->group.joints().size(), context_.config.stick));
+}
+
+void JogMode::publish(double dt)
+{
+  feedback_ = 0.0;
+
+  auto* target = focused();
+  if (target == nullptr || !target->group.tick(dt, context_.config.jog, context_.joint_states)) {
+    return;
+  }
+
+  trajectory_msgs::msg::JointTrajectory trajectory;
+  trajectory.joint_names = target->group.joints();
+
+  trajectory_msgs::msg::JointTrajectoryPoint point;
+  point.positions = target->group.commanded_positions();
+  point.velocities = target->group.commanded_velocities();
+  point.time_from_start = rclcpp::Duration::from_seconds(dt);
+  trajectory.points.push_back(std::move(point));
+
+  target->publisher->publish(trajectory);
+
+  // The arm failing to keep up is the one thing the operator cannot see from the stick.
+  feedback_ = target->group.lagging() ? 1.0 : 0.0;
+}
+
+void JogMode::reset()
+{
+  feedback_ = 0.0;
+
+  for (auto& entry : targets_) {
+    entry.second.group.reset(context_.joint_states);
+  }
+}
+
+void JogMode::set_focus(const std::string& component)
+{
+  focus_ = component;
+}
+
+void JogMode::on_robot_changed()
+{
+  targets_.clear();
+
+  for (const auto& target : context_.discovery.targets()) {
+    targets_.emplace(target.component,
+                     Target{ JogGroup(target.joints), context_.node.create_publisher<
+                                                          trajectory_msgs::msg::JointTrajectory>(target.topic, 10) });
+  }
+}
+
+double JogMode::feedback() const
+{
+  return feedback_;
+}
+
+JogMode::Target* JogMode::focused()
+{
+  const auto match = targets_.find(focus_);
+  return match == targets_.end() ? nullptr : &match->second;
 }
 
 }  // namespace duatic_teleop_gamepad

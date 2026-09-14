@@ -22,7 +22,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/controller_manager_client.hpp"
+#include "duatic_teleop_gamepad/robot/controller_manager_client.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -87,16 +87,13 @@ void ControllerManagerClient::poll()
 void ControllerManagerClient::switch_controllers(const std::vector<std::string>& activate,
                                                  const std::vector<std::string>& deactivate)
 {
-  auto request = std::make_shared<SwitchController::Request>();
-
-  std::copy_if(activate.begin(), activate.end(), std::back_inserter(request->activate_controllers),
-               [this](const std::string& name) { return !snapshot_.is_active(name); });
-  std::copy_if(deactivate.begin(), deactivate.end(), std::back_inserter(request->deactivate_controllers),
-               [this](const std::string& name) { return snapshot_.is_active(name); });
-
-  if (request->activate_controllers.empty() && request->deactivate_controllers.empty()) {
+  if (activate.empty() && deactivate.empty()) {
     return;
   }
+
+  auto request = std::make_shared<SwitchController::Request>();
+  request->activate_controllers = activate;
+  request->deactivate_controllers = deactivate;
 
   if (!switch_client_->service_is_ready()) {
     RCLCPP_WARN(node_.get_logger(), "Cannot switch controllers: controller_manager/switch_controller is not available");

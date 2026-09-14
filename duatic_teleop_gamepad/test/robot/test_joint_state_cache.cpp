@@ -24,7 +24,7 @@
 
 #include <gtest/gtest.h>
 
-#include "duatic_teleop_gamepad/joint_state_cache.hpp"
+#include "duatic_teleop_gamepad/robot/joint_state_cache.hpp"
 
 using duatic_teleop_gamepad::JointStateCache;
 

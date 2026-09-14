@@ -24,8 +24,6 @@
 
 #include "duatic_teleop_gamepad/gamepad_config.hpp"
 
-#include <cstddef>
-
 namespace duatic_teleop_gamepad
 {
 
@@ -59,10 +57,7 @@ GamepadConfig declare_config(rclcpp::Node& node)
 
   config.buttons.dead_man_switch =
       node.declare_parameter("button_mapping.dead_man_switch", config.buttons.dead_man_switch);
-  config.buttons.move_home = node.declare_parameter("button_mapping.move_home", config.buttons.move_home);
-  config.buttons.move_sleep = node.declare_parameter("button_mapping.move_sleep", config.buttons.move_sleep);
   config.buttons.switch_mode = node.declare_parameter("button_mapping.switch_controller", config.buttons.switch_mode);
-  config.buttons.gripper = node.declare_parameter("button_mapping.gripper_control", config.buttons.gripper);
   config.buttons.wrist_rotation_left =
       node.declare_parameter("button_mapping.wrist_rotation_left", config.buttons.wrist_rotation_left);
   config.buttons.wrist_rotation_right =
@@ -108,40 +103,6 @@ GamepadConfig declare_config(rclcpp::Node& node)
   config.protected_controllers = node.declare_parameter("protected_controllers", config.protected_controllers);
 
   return config;
-}
-
-double axis_value(const sensor_msgs::msg::Joy& msg, int index)
-{
-  if (index < 0 || static_cast<std::size_t>(index) >= msg.axes.size()) {
-    return 0.0;
-  }
-
-  return msg.axes[static_cast<std::size_t>(index)];
-}
-
-bool button_pressed(const sensor_msgs::msg::Joy& msg, int index)
-{
-  if (index < 0 || static_cast<std::size_t>(index) >= msg.buttons.size()) {
-    return false;
-  }
-
-  return msg.buttons[static_cast<std::size_t>(index)] != 0;
-}
-
-StickInput read_sticks(const sensor_msgs::msg::Joy& msg, const AxisMapping& axes, const ButtonMapping& buttons)
-{
-  StickInput input;
-
-  input.left_x = axis_value(msg, axes.left_x);
-  input.left_y = axis_value(msg, axes.left_y);
-  input.right_x = axis_value(msg, axes.right_x);
-  input.right_y = axis_value(msg, axes.right_y);
-  input.trigger_left = axis_value(msg, axes.trigger_left);
-  input.trigger_right = axis_value(msg, axes.trigger_right);
-  input.wrist_left = button_pressed(msg, buttons.wrist_rotation_left);
-  input.wrist_right = button_pressed(msg, buttons.wrist_rotation_right);
-
-  return input;
 }
 
 }  // namespace duatic_teleop_gamepad

@@ -28,59 +28,40 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/joy.hpp>
 
-#include "duatic_teleop_gamepad/drive_ramp.hpp"
-#include "duatic_teleop_gamepad/jog_group.hpp"
-#include "duatic_teleop_gamepad/stick_mapping.hpp"
+#include "duatic_teleop_gamepad/input/gamepad_input.hpp"
 
 namespace duatic_teleop_gamepad
 {
 
-/// Which Joy button index each function sits on.
-struct ButtonMapping
+struct JogLimits
 {
-  int dead_man_switch{ 10 };
-  int move_home{ 3 };
-  int move_sleep{ 1 };
-  int switch_mode{ 6 };
-  int gripper{ 0 };
-  int wrist_rotation_left{ 7 };
-  int wrist_rotation_right{ 8 };
+  /// Slew-rate limit on the commanded joint velocity, in rad/s^2.
+  double max_acceleration{ 5.0 };
+
+  /// How far the commanded position may run ahead of the measured one, in rad. Reaching it
+  /// means the arm is not keeping up, and the command is held back to stay within it.
+  double max_position_offset{ 0.1 };
 };
 
-/// Which Joy axis index each stick and trigger sits on.
-struct AxisMapping
+struct DriveLimits
 {
-  int left_x{ 0 };
-  int left_y{ 1 };
-  int right_x{ 2 };
-  int right_y{ 3 };
-  int trigger_left{ 4 };
-  int trigger_right{ 5 };
+  /// Platform speed at full stick deflection, in m/s and rad/s.
+  double max_velocity{ 0.6 };
+
+  double acceleration{ 0.5 };
+
+  /// Kept above acceleration so the platform can always shed speed faster than it gains it.
+  double deceleration{ 1.0 };
+
+  double deadzone{ 0.05 };
 };
 
-/// The D-Pad, and the component each direction focuses.
+/// Everything the node reads from parameters.
 ///
-/// Both forms are read every time: Xbox-style pads report the D-Pad as a pair of axes and
-/// PlayStation-style pads as four buttons, and which one a given pad uses is not known
-/// ahead of time.
-struct DpadMapping
-{
-  int axis_x{ 6 };
-  int axis_y{ 7 };
-  int button_up{ 11 };
-  int button_down{ 12 };
-  int button_left{ 13 };
-  int button_right{ 14 };
-
-  /// The component each direction focuses. An empty name leaves that direction unassigned.
-  std::string focus_up{ "hip" };
-  std::string focus_down;
-  std::string focus_left{ "arm_right" };
-  std::string focus_right{ "arm_left" };
-};
-
+/// The limits live here rather than beside the code that applies them, because every one of
+/// them is a ROS parameter, and because a mode header that had to reach back into this one
+/// for them could not also be included by it.
 struct GamepadConfig
 {
   ButtonMapping buttons;
@@ -115,17 +96,5 @@ struct GamepadConfig
 
 /// Declare every parameter on the node and read the result back.
 GamepadConfig declare_config(rclcpp::Node& node);
-
-/// @brief Read one axis, returning zero when the pad does not report it.
-///
-/// Pads report fewer axes and buttons than a config may map, and an out-of-range read in
-/// the input path would throw out of the timer callback that drives teleop.
-double axis_value(const sensor_msgs::msg::Joy& msg, int index);
-
-/// Read one button, returning false when the pad does not report it.
-bool button_pressed(const sensor_msgs::msg::Joy& msg, int index);
-
-/// Collect the controls that drive jogging out of a Joy message.
-StickInput read_sticks(const sensor_msgs::msg::Joy& msg, const AxisMapping& axes, const ButtonMapping& buttons);
 
 }  // namespace duatic_teleop_gamepad

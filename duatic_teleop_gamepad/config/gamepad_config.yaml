@@ -26,13 +26,10 @@
 /**:
   ros__parameters:
     button_mapping:
-      move_home: 3
-      move_sleep: 1
       dead_man_switch: 10
       wrist_rotation_left: 7
       wrist_rotation_right: 8
       switch_controller: 6  # Menu button for switching modes
-      gripper_control: 0
     axis_mapping:
       left_joystick:
         x: 0
@@ -68,7 +65,8 @@
       max_acceleration: 5.0    # rad/s^2
       max_position_offset: 0.1 # rad the command may lead the measured position by
       deadzone: 0.1
-      # Deflection the quieter axis of a stick must exceed while the other one leads.
+      # Deflection at which an axis counts as committed, and the deadzone the other axis
+      # of that stick then has to clear.
       # Set equal to deadzone to let both axes of a stick drive their joints together.
       dominant_axis_threshold: 0.6
 

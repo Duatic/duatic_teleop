@@ -32,7 +32,7 @@
 #include <controller_manager_msgs/srv/switch_controller.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "duatic_teleop_gamepad/controller_snapshot.hpp"
+#include "duatic_teleop_gamepad/robot/controller_snapshot.hpp"
 
 namespace duatic_teleop_gamepad
 {
@@ -56,8 +56,9 @@ public:
 
   /// @brief Activate and deactivate controllers in one switch.
   ///
-  /// Names already in the requested state are dropped, and the call is skipped entirely if
-  /// nothing is left to do, so this is safe to call speculatively.
+  /// The lists are sent as they are given: working out what is already in the requested
+  /// state is the caller's job, because only the caller knows what it is aiming for. A
+  /// switch with nothing in it is skipped rather than sent.
   void switch_controllers(const std::vector<std::string>& activate, const std::vector<std::string>& deactivate);
 
 private:

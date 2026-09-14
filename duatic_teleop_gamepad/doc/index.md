@@ -1,7 +1,7 @@
 # Gamepad Teleoperation
 
 `duatic_teleop_gamepad` maps a standard gamepad (Xbox- or PS4/PS5-style) to teleoperation of a
-Duatic robot: driving a mobile base, jogging an arm in joint space, freedrive, and gripper control.
+Duatic robot: driving a mobile base, jogging an arm in joint space, and freedrive.
 
 Which of these are actually available at runtime depends on the robot's morphology — a
 `mobile_manipulator` gets all of them, a `single_arm` or `multi_arm` robot gets manipulation and
@@ -48,9 +48,6 @@ normal ROS parameter, so it can be overridden from a launch file or with `ros2 p
 | Dead man switch (Right Shoulder) | Hold to allow motion. Release to stop and freeze the active controller. |
 | Menu button | Switch to the next available high-level controller (Freedrive → Joint Trajectory → Platform Drive, whichever are available). |
 | D-Pad | Focus the component the active mode acts on: up `hip`, left `arm_right`, right `arm_left`. Down is unassigned. Reported as axes on Xbox-style pads and as individual buttons on PS4/PS5-style pads — both are handled automatically. |
-| Face Bottom | Gripper open/close for the focused arm (works independently of the active high-level controller, as long as the system isn't frozen). |
-| Face Top | Move to home pose. |
-| Face Right | Move to sleep pose. |
 
 Button/axis indices are all remappable in
 [`config/gamepad_config.yaml`](../config/gamepad_config.yaml) to support different gamepad
@@ -69,10 +66,10 @@ layouts.
 | Triggers (right − left) | Joint 5 |
 | Left/Right stick click | Joint 6 (wrist rotation) |
 
-Only one stick axis drives a given joint pair at a time: whichever axis is furthest from
-centre leads, and the other has to pass `jog.dominant_axis_threshold` to drive its joint as
-well, so a light diagonal doesn't creep both joints while a committed one still moves both.
-Setting that threshold equal to `jog.deadzone` lets both axes drive together.
+An axis past `jog.dominant_axis_threshold` counts as committed, and while one is, the
+other axis of that stick has to clear the same threshold to drive its joint as well. So a
+light diagonal doesn't creep both joints while a committed one still moves both. Setting
+that threshold equal to `jog.deadzone` lets both axes drive together.
 
 **Platform Drive** — mecanum-style base driving, reached with the mode button:
 
@@ -115,6 +112,13 @@ controller and its odometry, and are left running across mode changes.
 If another node switches controllers underneath, the gamepad follows rather than carrying on
 with a mode the robot is no longer in. An explicit mode choice stands as long as its own
 controllers are still running.
+
+```{warning}
+A mode switch that does not take effect within three seconds engages the freeze
+controllers, because a switch that only half happened can leave the arms with nothing
+holding them. The robot then has to be released the way any E-Stop is, by holding the
+emergency stop button; the gamepad cannot clear it.
+```
 
 ```{note}
 Jogging streams trajectory points that end while still moving, which a

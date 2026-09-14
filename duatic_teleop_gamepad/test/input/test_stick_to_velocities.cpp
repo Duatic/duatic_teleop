@@ -24,7 +24,7 @@
 
 #include <gtest/gtest.h>
 
-#include "duatic_teleop_gamepad/stick_mapping.hpp"
+#include "duatic_teleop_gamepad/input/gamepad_input.hpp"
 
 using duatic_teleop_gamepad::StickInput;
 using duatic_teleop_gamepad::StickLimits;
@@ -107,6 +107,28 @@ TEST(StickMapping, TheSuppressedAxisStillWinsPastTheThreshold)
 
   EXPECT_DOUBLE_EQ(velocities[1], 0.9);
   EXPECT_DOUBLE_EQ(velocities[0], 0.7);
+}
+
+TEST(StickMapping, AnUncommittedDiagonalIsNotDecidedByWhichAxisIsLarger)
+{
+  // The two axes of a stick held on a diagonal sit within noise of each other, so deciding
+  // the lead by comparing them hands it back and forth at the input rate and the joints
+  // rattle. Neither axis is committed here, so both drive whichever one happens to lead.
+  StickInput leading_x;
+  leading_x.left_x = 0.41;
+  leading_x.left_y = 0.40;
+
+  StickInput leading_y;
+  leading_y.left_x = 0.40;
+  leading_y.left_y = 0.41;
+
+  const auto with_x = stick_to_velocities(leading_x, kSevenJoints, limits());
+  const auto with_y = stick_to_velocities(leading_y, kSevenJoints, limits());
+
+  EXPECT_DOUBLE_EQ(with_x[0], 0.41);
+  EXPECT_DOUBLE_EQ(with_x[1], 0.40);
+  EXPECT_DOUBLE_EQ(with_y[0], 0.40);
+  EXPECT_DOUBLE_EQ(with_y[1], 0.41);
 }
 
 TEST(StickMapping, DominanceCanBeTurnedOff)

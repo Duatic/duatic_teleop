@@ -27,7 +27,7 @@
 #include <cmath>
 #include <limits>
 
-#include "duatic_teleop_gamepad/drive_ramp.hpp"
+#include "duatic_teleop_gamepad/modes/drive_mode.hpp"
 
 using duatic_teleop_gamepad::DriveLimits;
 using duatic_teleop_gamepad::DriveRamp;

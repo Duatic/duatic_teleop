@@ -22,30 +22,49 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/gripper_toggle.hpp"
+#include <gtest/gtest.h>
 
-namespace duatic_teleop_gamepad
+#include "duatic_teleop_gamepad/modes/mode_manager.hpp"
+
+using duatic_teleop_gamepad::plan_switch;
+
+namespace
 {
 
-std::optional<double> GripperToggle::update(const std::string& component, bool pressed)
+const std::vector<std::string> kProtectedBases = { "mecanum_drive_controller", "platform_velocity_controller" };
+
+}  // namespace
+
+TEST(PlanSwitch, ActivatesWhatIsMissingAndStopsWhatIsSpare)
 {
-  const bool just_pressed = pressed && !was_pressed_;
-  was_pressed_ = pressed;
+  const auto plan = plan_switch({ "a", "b" }, { "b", "c" }, {});
 
-  if (!just_pressed || component.empty()) {
-    return std::nullopt;
-  }
-
-  const bool opening = !is_open(component);
-  open_[component] = opening;
-
-  return opening ? 1.0 : 0.0;
+  EXPECT_EQ(plan.activate, (std::vector<std::string>{ "a" }));
+  EXPECT_EQ(plan.deactivate, (std::vector<std::string>{ "c" }));
 }
 
-bool GripperToggle::is_open(const std::string& component) const
+TEST(PlanSwitch, LeavesProtectedControllersRunning)
 {
-  const auto it = open_.find(component);
-  return it != open_.end() && it->second;
+  const auto plan = plan_switch({ "freedrive_controller" }, { "mecanum_drive_controller" }, kProtectedBases);
+
+  // Stopping the drive controller loses its odometry, so it is left alone even though
+  // freedrive has no use for it.
+  EXPECT_TRUE(plan.deactivate.empty());
+  EXPECT_EQ(plan.activate, (std::vector<std::string>{ "freedrive_controller" }));
 }
 
-}  // namespace duatic_teleop_gamepad
+TEST(PlanSwitch, ProtectionMatchesOnThePrefix)
+{
+  const auto plan = plan_switch({}, { "mecanum_drive_controller_front" }, kProtectedBases);
+
+  EXPECT_TRUE(plan.deactivate.empty());
+}
+
+TEST(PlanSwitch, SwitchingToWhatIsAlreadyRunningDoesNothing)
+{
+  const std::vector<std::string> running = { "a", "b", "c" };
+  const auto plan = plan_switch(running, running, kProtectedBases);
+
+  EXPECT_TRUE(plan.activate.empty());
+  EXPECT_TRUE(plan.deactivate.empty());
+}

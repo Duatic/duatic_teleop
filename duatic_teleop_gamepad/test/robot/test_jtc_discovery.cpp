@@ -24,10 +24,9 @@
 
 #include <gtest/gtest.h>
 
-#include "duatic_teleop_gamepad/jtc_discovery.hpp"
+#include "duatic_teleop_gamepad/robot/jtc_discovery.hpp"
 
 using duatic_teleop_gamepad::JtcTopic;
-using duatic_teleop_gamepad::component_from_topic;
 using duatic_teleop_gamepad::select_jtc_topics;
 
 namespace
@@ -144,32 +143,4 @@ TEST(SelectJtcTopics, ResultIsSortedRegardlessOfGraphOrder)
   std::reverse(shuffled.begin(), shuffled.end());
 
   EXPECT_EQ(topics_of(select_jtc_topics(shuffled, "/")), topics_of(select_jtc_topics(kDxtrTopics, "/")));
-}
-
-TEST(ComponentFromTopic, ReadsTheLeadingSegment)
-{
-  EXPECT_EQ(component_from_topic("/arm_left/gripper_controller/commands", "gripper_controller/commands"), "arm_left");
-}
-
-TEST(ComponentFromTopic, RejectsATopicOfTheWrongShape)
-{
-  // Extra namespace in front, so the leading segment is not the component.
-  EXPECT_TRUE(component_from_topic("/robot2/arm_left/gripper_controller/commands", "gripper_controller/commands")
-                  .empty());
-
-  // No component segment at all.
-  EXPECT_TRUE(component_from_topic("/gripper_controller/commands", "gripper_controller/commands").empty());
-}
-
-TEST(ComponentFromTopic, RejectsADifferentController)
-{
-  EXPECT_TRUE(component_from_topic("/arm_left/other_controller/commands", "gripper_controller/commands").empty());
-}
-
-TEST(ComponentFromTopic, DoesNotMatchOnATrailingSubstring)
-{
-  // Searching backwards from the suffix would happily return "my_gripper" here; the shape
-  // check is what makes the answer the whole leading segment or nothing.
-  EXPECT_EQ(component_from_topic("/my_arm_left/gripper_controller/commands", "gripper_controller/commands"),
-            "my_arm_left");
 }

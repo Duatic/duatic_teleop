@@ -24,31 +24,31 @@
 
 #pragma once
 
-#include <optional>
 #include <string>
-#include <unordered_map>
+#include <vector>
+
+#include "duatic_teleop_gamepad/modes/base_mode.hpp"
 
 namespace duatic_teleop_gamepad
 {
 
-/// Open/closed state of each component's gripper, toggled by one button.
+/// Hands the robot over to its own gravity compensation.
 ///
-/// The button is tracked across components rather than per component, so holding it down
-/// while changing focus does not toggle the newly focused gripper.
-class GripperToggle
+/// The controller does the work, so this mode carries no state and no publisher: switching
+/// to it is the whole of it.
+class FreedriveMode : public BaseMode
 {
 public:
-  /// @brief Feed the button state for the currently focused component.
-  /// @return The position to command when the button has just gone down, 1.0 to open and
-  ///   0.0 to close; nothing at all otherwise.
-  std::optional<double> update(const std::string& component, bool pressed);
+  std::string name() const override
+  {
+    return "freedrive";
+  }
 
-  /// Whether the named component's gripper is currently held open.
-  bool is_open(const std::string& component) const;
-
-private:
-  std::unordered_map<std::string, bool> open_;
-  bool was_pressed_{ false };
+  const std::vector<std::string>& controller_bases() const override
+  {
+    static const std::vector<std::string> bases = { "freedrive_controller" };
+    return bases;
+  }
 };
 
 }  // namespace duatic_teleop_gamepad

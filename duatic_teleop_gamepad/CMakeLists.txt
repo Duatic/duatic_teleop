@@ -11,19 +11,18 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 
-# The decision logic, free of node ownership so it can be tested without a running ROS
-# graph. The node itself and its parameter declarations live in the executable below, which
-# is what keeps that claim true.
+# Everything the node is made of: reading the pad (input), following the robot (robot), and
+# the modes it can be in (modes). The node itself and its parameter declarations live in the
+# executable below, so what is here can be exercised without one.
 add_library(gamepad_core
-  src/controller_manager_client.cpp
-  src/controller_snapshot.cpp
-  src/drive_ramp.cpp
-  src/gripper_toggle.cpp
-  src/jog_group.cpp
-  src/joint_state_cache.cpp
-  src/jtc_discovery.cpp
-  src/stick_mapping.cpp
-  src/teleop_mode.cpp
+  src/input/gamepad_input.cpp
+  src/modes/drive_mode.cpp
+  src/modes/jog_mode.cpp
+  src/modes/mode_manager.cpp
+  src/robot/controller_manager_client.cpp
+  src/robot/controller_snapshot.cpp
+  src/robot/joint_state_cache.cpp
+  src/robot/jtc_discovery.cpp
 )
 target_compile_features(gamepad_core PUBLIC cxx_std_20)
 target_include_directories(gamepad_core PUBLIC
@@ -67,30 +66,15 @@ install(DIRECTORY config
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
-  ament_add_gtest(test_joint_state_cache test/test_joint_state_cache.cpp)
-  target_link_libraries(test_joint_state_cache gamepad_core)
+  # One binary per test file, named after the file. CONFIGURE_DEPENDS so that adding a test
+  # is adding a file, without this list and the test folder being able to disagree.
+  file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} test/*.cpp)
 
-
-  ament_add_gtest(test_controller_snapshot test/test_controller_snapshot.cpp)
-  target_link_libraries(test_controller_snapshot gamepad_core)
-
-  ament_add_gtest(test_jtc_discovery test/test_jtc_discovery.cpp)
-  target_link_libraries(test_jtc_discovery gamepad_core)
-
-  ament_add_gtest(test_jog_group test/test_jog_group.cpp)
-  target_link_libraries(test_jog_group gamepad_core)
-
-  ament_add_gtest(test_stick_mapping test/test_stick_mapping.cpp)
-  target_link_libraries(test_stick_mapping gamepad_core)
-
-  ament_add_gtest(test_teleop_mode test/test_teleop_mode.cpp)
-  target_link_libraries(test_teleop_mode gamepad_core)
-
-  ament_add_gtest(test_drive_ramp test/test_drive_ramp.cpp)
-  target_link_libraries(test_drive_ramp gamepad_core)
-
-  ament_add_gtest(test_gripper_toggle test/test_gripper_toggle.cpp)
-  target_link_libraries(test_gripper_toggle gamepad_core)
+  foreach(test_source IN LISTS test_sources)
+    get_filename_component(test_name ${test_source} NAME_WE)
+    ament_add_gtest(${test_name} ${test_source})
+    target_link_libraries(${test_name} gamepad_core)
+  endforeach()
 endif()
 
 ament_package()

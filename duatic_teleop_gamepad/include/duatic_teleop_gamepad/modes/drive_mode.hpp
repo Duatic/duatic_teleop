@@ -24,23 +24,16 @@
 
 #pragma once
 
-#include "duatic_teleop_gamepad/stick_mapping.hpp"
+#include <string>
+#include <vector>
+
+#include <geometry_msgs/msg/twist_stamped.hpp>
+#include <rclcpp/rclcpp.hpp>
+
+#include "duatic_teleop_gamepad/modes/base_mode.hpp"
 
 namespace duatic_teleop_gamepad
 {
-
-struct DriveLimits
-{
-  /// Platform speed at full stick deflection, in m/s and rad/s.
-  double max_velocity{ 0.6 };
-
-  double acceleration{ 0.5 };
-
-  /// Kept above acceleration so the platform can always shed speed faster than it gains it.
-  double deceleration{ 1.0 };
-
-  double deadzone{ 0.05 };
-};
 
 struct DriveCommand
 {
@@ -68,6 +61,34 @@ public:
 
 private:
   DriveCommand command_;
+};
+
+/// Drives the mobile platform from the sticks.
+///
+/// Commands go out on the input tick rather than on the publish tick: the platform follows
+/// a velocity until it is given another one, so there is nothing to stream, and the ramp's
+/// dt is the interval the sticks were read over.
+class DriveMode : public BaseMode
+{
+public:
+  explicit DriveMode(TeleopContext context);
+
+  std::string name() const override;
+  const std::vector<std::string>& controller_bases() const override;
+  std::vector<std::string> required_controllers(const ControllerSnapshot& controllers) const override;
+  void on_input(const GamepadInput& input, double dt) override;
+  void reset() override;
+
+private:
+  void publish_twist(const DriveCommand& command);
+
+  TeleopContext context_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr publisher_;
+  DriveRamp ramp_;
+
+  /// Whether a command has gone out since the last reset, which is what decides if a
+  /// stopping one is owed.
+  bool driving_{ false };
 };
 
 }  // namespace duatic_teleop_gamepad

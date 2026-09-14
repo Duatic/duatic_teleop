@@ -22,7 +22,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/joint_state_cache.hpp"
+#include "duatic_teleop_gamepad/robot/joint_state_cache.hpp"
 
 #include <algorithm>
 

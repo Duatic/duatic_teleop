@@ -69,7 +69,6 @@ public:
   /// Whether every one of the given joints is known.
   bool has_all(const std::vector<std::string>& names) const;
 
-  /// Every known joint name, sorted so the result is stable across calls.
 private:
   struct Entry
   {

@@ -24,7 +24,7 @@
 
 #include <gtest/gtest.h>
 
-#include "duatic_teleop_gamepad/controller_snapshot.hpp"
+#include "duatic_teleop_gamepad/robot/controller_snapshot.hpp"
 
 using duatic_teleop_gamepad::ControllerSnapshot;
 using duatic_teleop_gamepad::ControllerState;

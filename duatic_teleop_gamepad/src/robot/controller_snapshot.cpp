@@ -22,7 +22,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/controller_snapshot.hpp"
+#include "duatic_teleop_gamepad/robot/controller_snapshot.hpp"
 
 #include <algorithm>
 
@@ -33,9 +33,6 @@ namespace
 {
 
 constexpr const char* kActive = "active";
-/// The global E-Stop controller's name, which is also the prefix the per-component freeze
-/// controllers carry.
-constexpr const char* kFreezeController = "freeze_controller";
 
 /// @brief Decide whether the E-Stop is engaged.
 ///
@@ -49,11 +46,11 @@ bool determine_freeze(const std::vector<ControllerState>& controllers)
   bool any_freeze_active = false;
 
   for (const auto& controller : controllers) {
-    if (!controller.name.starts_with(kFreezeController)) {
+    if (!controller.name.starts_with(kFreezeControllerBase)) {
       continue;
     }
 
-    if (controller.name == kFreezeController) {
+    if (controller.name == kFreezeControllerBase) {
       return controller.state == kActive;
     }
 

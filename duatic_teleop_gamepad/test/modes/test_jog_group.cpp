@@ -24,7 +24,7 @@
 
 #include <gtest/gtest.h>
 
-#include "duatic_teleop_gamepad/jog_group.hpp"
+#include "duatic_teleop_gamepad/modes/jog_mode.hpp"
 
 using duatic_teleop_gamepad::JogGroup;
 using duatic_teleop_gamepad::JogLimits;
@@ -49,7 +49,7 @@ JointStateCache states_with(const std::vector<std::string>& names, const std::ve
 
 JogGroup two_joint_group()
 {
-  return JogGroup("/joint_trajectory_controller_arm_left/joint_trajectory", { "a", "b" });
+  return JogGroup({ "a", "b" });
 }
 
 /// Run enough ticks that a slew-limited velocity has certainly reached its target.

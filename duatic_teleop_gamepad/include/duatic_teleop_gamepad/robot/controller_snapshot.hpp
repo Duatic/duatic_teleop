@@ -30,6 +30,10 @@
 namespace duatic_teleop_gamepad
 {
 
+/// The global E-Stop controller's name, which is also the prefix the per-component freeze
+/// controllers carry.
+inline constexpr const char* kFreezeControllerBase = "freeze_controller";
+
 /// The name and lifecycle state of one ros2_control controller.
 struct ControllerState
 {
@@ -40,8 +44,8 @@ struct ControllerState
 /// The controller manager's state, reduced to what the teleop node acts on.
 ///
 /// Only controllers matching one of the managed base names are visible through active()
-/// and matching(). Everything else the robot runs -- broadcasters, gravity compensation,
-/// force-torque publishers -- stays invisible here on purpose, because the switching logic
+/// and matching(). Everything else the robot runs (broadcasters, gravity compensation,
+/// force-torque publishers) stays invisible here on purpose, because the switching logic
 /// deactivates whatever it sees that the next mode does not need, and must never be able
 /// to reach a controller it does not own.
 class ControllerSnapshot

@@ -22,10 +22,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "duatic_teleop_gamepad/drive_ramp.hpp"
+#include "duatic_teleop_gamepad/modes/drive_mode.hpp"
 
 #include <algorithm>
 #include <cmath>
+
+#include "duatic_teleop_gamepad/robot/jtc_discovery.hpp"
 
 namespace duatic_teleop_gamepad
 {
@@ -81,6 +83,75 @@ const DriveCommand& DriveRamp::stop()
 {
   command_ = DriveCommand{};
   return command_;
+}
+
+DriveMode::DriveMode(TeleopContext context) : context_(context)
+{
+  publisher_ = context_.node.create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel", 10);
+}
+
+std::string DriveMode::name() const
+{
+  return "drive";
+}
+
+const std::vector<std::string>& DriveMode::controller_bases() const
+{
+  static const std::vector<std::string> bases = { "mecanum_drive_controller", "platform_velocity_controller" };
+  return bases;
+}
+
+std::vector<std::string> DriveMode::required_controllers(const ControllerSnapshot& controllers) const
+{
+  auto required = controllers.matching(controller_bases());
+
+  // Driving keeps the trajectory controllers active so the arms hold their pose instead of
+  // going slack while the base moves. They are not what makes driving available, which is
+  // why they are required here rather than listed as a base.
+  for (const auto& name : controllers.matching({ kTrajectoryControllerBase })) {
+    if (std::find(required.begin(), required.end(), name) == required.end()) {
+      required.push_back(name);
+    }
+  }
+
+  std::sort(required.begin(), required.end());
+  return required;
+}
+
+void DriveMode::on_input(const GamepadInput& input, double dt)
+{
+  // Stopping is reset()'s job, which every edge that ends a drive goes through, so the
+  // stream simply ends here rather than repeating the zero forever.
+  if (!input.motion_allowed) {
+    return;
+  }
+
+  publish_twist(ramp_.advance(input.sticks, dt, context_.config.drive));
+  driving_ = true;
+}
+
+void DriveMode::reset()
+{
+  // The platform holds its last command until it is told otherwise, so the stopping zero
+  // has to go out rather than only being zeroed in the ramp.
+  const bool was_driving = driving_;
+  driving_ = false;
+
+  const auto& stopped = ramp_.stop();
+  if (was_driving) {
+    publish_twist(stopped);
+  }
+}
+
+void DriveMode::publish_twist(const DriveCommand& command)
+{
+  geometry_msgs::msg::TwistStamped twist;
+  twist.header.stamp = context_.node.now();
+  twist.header.frame_id = "base_link";
+  twist.twist.linear.x = command.linear_x;
+  twist.twist.linear.y = command.linear_y;
+  twist.twist.angular.z = command.angular_z;
+  publisher_->publish(twist);
 }
 
 }  // namespace duatic_teleop_gamepad

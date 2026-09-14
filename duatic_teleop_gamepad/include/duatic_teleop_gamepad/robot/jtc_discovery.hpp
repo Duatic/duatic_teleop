@@ -34,6 +34,10 @@
 namespace duatic_teleop_gamepad
 {
 
+/// Name prefix every joint trajectory controller carries. It is both how they are found on
+/// the graph and how the modes that need them name them to the controller manager.
+inline constexpr const char* kTrajectoryControllerBase = "joint_trajectory_controller";
+
 /// One joint_trajectory topic and the controller that owns it.
 struct JtcTopic
 {
@@ -41,15 +45,6 @@ struct JtcTopic
   std::string controller;
   std::string component;
 };
-
-/// @brief The component a controller topic belongs to.
-/// @param topic Full topic name, expected to be "<component>/<suffix>".
-/// @param suffix The controller-and-message part that follows the component.
-/// @return The component name, or empty if the topic does not have that shape.
-///
-/// Read from the leading segment rather than by searching backwards from the suffix, so a
-/// component whose name happens to end in another one's cannot claim its topic.
-std::string component_from_topic(const std::string& topic, const std::string& suffix);
 
 /// @brief Pick out every joint_trajectory topic on the graph, naming the component each
 ///   one drives.
@@ -90,7 +85,13 @@ public:
   /// and idempotent, so it suits being called periodically.
   void reconcile();
 
+  /// The controllers found so far, sorted by component, so what is first does not depend
+  /// on which controller happened to answer first.
   const std::vector<Target>& targets() const;
+
+  /// Whether a trajectory controller drives this component, which is what makes it
+  /// focusable.
+  bool drives(const std::string& component) const;
 
 private:
   void request_joints(const JtcTopic& jtc_topic);
