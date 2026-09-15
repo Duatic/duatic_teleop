@@ -76,6 +76,7 @@ class ArmState:
     joint_indices: list = field(default_factory=list)  # indices of this arm's joints in full cfg
     smoothed_arm_q: np.ndarray = None  # smoothed values for this arm's joints only
     last_smoothed_arm_q: np.ndarray = None
+    last_input_time: float = None  # time.time() of the last PoseStamped command received
 
 
 # Marker colors per arm
@@ -99,12 +100,14 @@ class InteractivePyrokiNode(Node):
         # and then  send the jtc targets via rosbridge to the NUC:
         self.declare_parameter("uri", "ws://127.0.0.1:9090")
         self.declare_parameter("rosbridge", False)
+        self.declare_parameter("command_timeout", 0.5)
 
         self.target_link_name = self.get_parameter("target_link_name").value
         self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
         self.solve_mode = self.get_parameter("solve_mode").value
         self.rosbridge_uri = self.get_parameter("uri").value
         self.use_rosbridge = self.get_parameter("rosbridge").value
+        self.command_timeout = self.get_parameter("command_timeout").value
 
         if self.use_rosbridge:
             self.ws = websocket.WebSocket()
@@ -478,6 +481,7 @@ class InteractivePyrokiNode(Node):
                     msg.pose.orientation.z,
                 ]
             )
+            arm.last_input_time = time.time()
 
     def process_feedback(self, feedback):
         """Handle interactive marker feedback — identify marker by name."""
@@ -504,10 +508,19 @@ class InteractivePyrokiNode(Node):
                     )
                 return
 
-    def _split_and_publish(self, full_q, full_velocities=None):
-        """Split full joint solution into per-controller JointTrajectory messages."""
+    def _split_and_publish(self, full_q, full_velocities=None, component_names=None):
+        """Split full joint solution into per-controller JointTrajectory messages.
+
+        Args:
+            full_q: Full-body joint configuration to publish.
+            full_velocities: Optional full-body joint velocities (unused by callers today).
+            component_names: If given, only publish for these controller components (e.g. to
+                skip an arm whose input has gone stale); defaults to all known publishers.
+        """
         stamp = self.get_clock().now().to_msg()
         for comp_name, publisher in self.traj_publishers.items():
+            if component_names is not None and comp_name not in component_names:
+                continue
             joint_names, indices = self._pub_joint_map[comp_name]
             if not indices:
                 continue
@@ -589,6 +602,27 @@ class InteractivePyrokiNode(Node):
             # This automatically adjusts sleep time based on computation time!
             rate.sleep()
 
+    def _input_is_stale(self, arm, now):
+        """Whether an arm currently has no live teleop command to act on.
+
+        True both when no command has ever been received and when the last one is older
+        than command_timeout, since neither reflects live operator intent. Always False in
+        interactive-marker mode, where an idle marker is normal rather than lost input.
+        """
+        if self.use_interactive_markers:
+            return False
+        return arm.last_input_time is None or (now - arm.last_input_time) > self.command_timeout
+
+    def _pin_arm_to_actual(self, arm, actual_q):
+        """Hold an arm's smoothing state at the robot's measured pose while input is stale.
+
+        Keeps the frozen state tracking reality so that when commands resume, motion ramps
+        from where the robot actually is instead of snapping back to where it was when
+        input stopped.
+        """
+        arm.smoothed_arm_q = actual_q[arm.joint_indices]
+        arm.last_smoothed_arm_q = arm.smoothed_arm_q.copy()
+
     def _control_step_decoupled(self, rate_sec):
         """Per-arm control: solve each arm independently, assemble, publish."""
         current_time = time.time()
@@ -601,8 +635,14 @@ class InteractivePyrokiNode(Node):
 
         # Start with actual joint states (hip + uncontrolled joints stay at current values)
         full_cfg = actual_q.copy()
+        fresh_components = set()
 
         for arm in self.arm_states:
+            if self._input_is_stale(arm, current_time):
+                self._pin_arm_to_actual(arm, actual_q)
+                continue
+            fresh_components.add(arm.name)
+
             with self._state_lock:
                 t_pos = arm.target_pos.copy()
                 t_wxyz = arm.target_wxyz.copy()
@@ -641,7 +681,13 @@ class InteractivePyrokiNode(Node):
 
         self.last_full_q = full_cfg.copy()
         self.last_time = current_time
-        self._split_and_publish(full_cfg)
+
+        # The hip only ever moves as a side effect of an arm solve, so it rides along with
+        # whichever arms are live and stays silent when none are.
+        if fresh_components and "hip" in self.traj_publishers:
+            fresh_components.add("hip")
+
+        self._split_and_publish(full_cfg, component_names=fresh_components)
 
     def _control_step_whole_body(self, rate_sec):
         """Whole-body control: solve all arms + hip simultaneously in one optimization."""
@@ -649,6 +695,24 @@ class InteractivePyrokiNode(Node):
         dt = current_time - (self.last_time if self.last_time else current_time - rate_sec)
         if dt <= 0:
             dt = rate_sec
+
+        # All arms are solved together here, so any stale arm silences the whole step.
+        stale_arms = [arm for arm in self.arm_states if self._input_is_stale(arm, current_time)]
+        if stale_arms:
+            names = ", ".join(a.name or "arm" for a in stale_arms)
+            self.get_logger().warn(
+                f"No live teleop command for arm(s) [{names}] "
+                f"(none within {self.command_timeout}s), not publishing.",
+                throttle_duration_sec=1.0,
+            )
+            with self._state_lock:
+                actual_q = self.current_q.copy()
+            self.smoothed_q = actual_q
+            self.last_smoothed_q = actual_q.copy()
+            # Keep last_time current so dt doesn't accumulate across the silent period and
+            # cause a large catch-up jump in smoothing once input resumes.
+            self.last_time = current_time
+            return
 
         with self._state_lock:
             actual_q = self.current_q.copy()
