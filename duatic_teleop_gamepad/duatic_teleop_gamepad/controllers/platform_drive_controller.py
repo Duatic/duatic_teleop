@@ -25,6 +25,7 @@ import math
 from duatic_teleop_gamepad.controllers.base_controller import BaseController
 
 from geometry_msgs.msg import TwistStamped
+from nav_msgs.msg import Odometry
 
 
 class PlatformDriveController(BaseController):
@@ -52,17 +53,34 @@ class PlatformDriveController(BaseController):
         self.accel_limit = self.node.declare_parameter("accel_limit", 0.5).value  # m/s²
         self.decel_limit = self.node.declare_parameter("decel_limit", 1.0).value  # m/s²
         self.deadzone = self.node.declare_parameter("deadzone", 0.05).value
+        # Empty means "derive it from whichever base drive controller this robot runs"
+        self.odom_topic_override = self.node.declare_parameter("odom_topic", "").value
+        # How far the commanded velocity may lead the measured velocity, expressed in time
+        self.feedback_lead_time = self.node.declare_parameter("feedback_lead_time", 0.2).value  # s
+        self.odom_timeout = self.node.declare_parameter("odom_timeout", 0.5).value  # s
 
-        # Current velocity state for acceleration limiting
-        self.current_linear_x = 0.0
-        self.current_linear_y = 0.0
-        self.current_angular_z = 0.0
+        # Ramp state: the last velocity that was commanded, not what the platform reached
+        self.cmd_linear_x = 0.0
+        self.cmd_linear_y = 0.0
+        self.cmd_angular_z = 0.0
+
+        # Measured body velocity, used to keep the ramp state from running away from reality
+        self.measured_linear_x = 0.0
+        self.measured_linear_y = 0.0
+        self.measured_angular_z = 0.0
+        self.last_odom_time = None
+        self.odom_topic = "odometry/filtered"
+        self.odom_subscription = None
 
         # Time tracking for acceleration calculations
         self.last_time = self.node.get_clock().now()
 
         # Controller state
         self.is_initialized = False
+
+        self.odom_subscription = self.node.create_subscription(
+            Odometry, self.odom_topic, self._odometry_callback, 1
+        )
 
         self.node.get_logger().info("Platform drive controller initialized")
 
@@ -89,6 +107,34 @@ class PlatformDriveController(BaseController):
     def reset(self):
         """Reset commanded positions to current joint states for all topics."""
         self._send_zero_command()
+
+    def _odometry_callback(self, msg):
+        """Store the platform's measured body velocity."""
+        linear_x = msg.twist.twist.linear.x
+        linear_y = msg.twist.twist.linear.y
+        angular_z = msg.twist.twist.angular.z
+
+        if not all(self._is_valid_float(v) for v in (linear_x, linear_y, angular_z)):
+            return
+
+        self.measured_linear_x = linear_x
+        self.measured_linear_y = linear_y
+        self.measured_angular_z = angular_z
+        self.last_odom_time = self.node.get_clock().now()
+
+    def _anchor_to_measured(self, cmd_vel, measured_vel):
+        """Limit how far the ramp state may lead the velocity the platform actually reached."""
+        lead = abs(self.accel_limit * self.feedback_lead_time)
+        # A braking command shall never be limited.
+        reached = max(0.0, measured_vel if cmd_vel >= 0.0 else -measured_vel)
+        bound = reached + lead
+        return self._clamp_value(cmd_vel, -bound, bound)
+
+    def _anchor_ramp_to_odometry(self, now):
+        """Pull the ramp state back towards the measured velocity before ramping again."""
+        self.cmd_linear_x = self._anchor_to_measured(self.cmd_linear_x, self.measured_linear_x)
+        self.cmd_linear_y = self._anchor_to_measured(self.cmd_linear_y, self.measured_linear_y)
+        self.cmd_angular_z = self._anchor_to_measured(self.cmd_angular_z, self.measured_angular_z)
 
     def _apply_acceleration_limit(self, target_vel, current_vel, dt):
         """Apply acceleration limiting to smooth velocity changes."""
@@ -158,34 +204,30 @@ class PlatformDriveController(BaseController):
         target_linear_y = left_stick_x * self.max_vel
         target_angular_z = right_stick_x * self.max_vel
 
-        self.current_linear_x = self._apply_acceleration_limit(
-            target_linear_x, self.current_linear_x, dt
-        )
-        self.current_linear_y = self._apply_acceleration_limit(
-            target_linear_y, self.current_linear_y, dt
-        )
-        self.current_angular_z = self._apply_acceleration_limit(
-            target_angular_z, self.current_angular_z, dt
+        self._anchor_ramp_to_odometry(current_time)
+
+        self.cmd_linear_x = self._apply_acceleration_limit(target_linear_x, self.cmd_linear_x, dt)
+        self.cmd_linear_y = self._apply_acceleration_limit(target_linear_y, self.cmd_linear_y, dt)
+        self.cmd_angular_z = self._apply_acceleration_limit(
+            target_angular_z, self.cmd_angular_z, dt
         )
 
         if not (
-            self._is_valid_float(self.current_linear_x)
-            and self._is_valid_float(self.current_linear_y)
-            and self._is_valid_float(self.current_angular_z)
+            self._is_valid_float(self.cmd_linear_x)
+            and self._is_valid_float(self.cmd_linear_y)
+            and self._is_valid_float(self.cmd_angular_z)
         ):
             self.node.get_logger().warn("Invalid velocity values calculated, sending zero command.")
             self._send_zero_command()
             return
 
-        self._send_twist_command(
-            self.current_linear_x, self.current_linear_y, self.current_angular_z
-        )
+        self._send_twist_command(self.cmd_linear_x, self.cmd_linear_y, self.cmd_angular_z)
 
     def _send_zero_command(self):
         """Send a zero velocity command to stop the robot safely."""
-        self.current_linear_x = 0.0
-        self.current_linear_y = 0.0
-        self.current_angular_z = 0.0
+        self.cmd_linear_x = 0.0
+        self.cmd_linear_y = 0.0
+        self.cmd_angular_z = 0.0
         self._send_twist_command(0.0, 0.0, 0.0)
 
     def _send_twist_command(self, linear_x, linear_y, angular_z):
