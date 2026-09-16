@@ -49,9 +49,9 @@ class PlatformDriveController(BaseController):
         self.twist_publisher = self.node.create_publisher(TwistStamped, "cmd_vel_smoothed", 10)
 
         # Get control parameters from ROS parameters
-        self.max_vel = self.node.declare_parameter("max_vel", 0.6).value  # m/s
+        self.max_vel = self.node.declare_parameter("max_vel", 1.2).value  # m/s
         self.accel_limit = self.node.declare_parameter("accel_limit", 0.5).value  # m/s²
-        self.decel_limit = self.node.declare_parameter("decel_limit", 1.0).value  # m/s²
+        self.decel_limit = self.node.declare_parameter("decel_limit", 1.5).value  # m/s²
         self.deadzone = self.node.declare_parameter("deadzone", 0.05).value
         # Empty means "derive it from whichever base drive controller this robot runs"
         self.odom_topic_override = self.node.declare_parameter("odom_topic", "").value
