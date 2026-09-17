@@ -76,6 +76,7 @@ class ArmState:
     joint_indices: list = field(default_factory=list)  # indices of this arm's joints in full cfg
     smoothed_arm_q: np.ndarray = None  # smoothed values for this arm's joints only
     last_smoothed_arm_q: np.ndarray = None
+    last_target_update: float = 0.0  # time.time() of the last target_pos/target_wxyz write
 
 
 # Marker colors per arm
@@ -86,6 +87,11 @@ ARM_COLORS = {
 }
 
 VALID_SOLVE_MODES = ("decoupled", "decoupled_with_hip", "whole_body")
+
+# whole_body mode: an arm with no target update within this window is locked (mask=0) rather
+# than left free, so the shared self-collision cost can't perturb an untouched arm's own joints
+# just because another arm's marker moved.
+WHOLE_BODY_ACTIVE_TIMEOUT_S = 0.5
 
 
 class InteractivePyrokiNode(Node):
@@ -99,12 +105,16 @@ class InteractivePyrokiNode(Node):
         # and then  send the jtc targets via rosbridge to the NUC:
         self.declare_parameter("uri", "ws://127.0.0.1:9090")
         self.declare_parameter("rosbridge", False)
+        self.declare_parameter("self_collision_margin", 0.05)
+        self.declare_parameter("self_collision_weight", 50.0)
 
         self.target_link_name = self.get_parameter("target_link_name").value
         self.use_interactive_markers = self.get_parameter("use_interactive_markers").value
         self.solve_mode = self.get_parameter("solve_mode").value
         self.rosbridge_uri = self.get_parameter("uri").value
         self.use_rosbridge = self.get_parameter("rosbridge").value
+        self.self_collision_margin = self.get_parameter("self_collision_margin").value
+        self.self_collision_weight = self.get_parameter("self_collision_weight").value
 
         if self.use_rosbridge:
             self.ws = websocket.WebSocket()
@@ -256,7 +266,11 @@ class InteractivePyrokiNode(Node):
     def _initialize_solver(self, urdf_data):
         """Build the IK solver and per-arm joint masks from `urdf_data`."""
         try:
-            self.solver = PyrokiIKSolver(urdf_data)
+            self.solver = PyrokiIKSolver(
+                urdf_data,
+                self_collision_margin=self.self_collision_margin,
+                self_collision_weight=self.self_collision_weight,
+            )
             self.joint_names = self.solver.joint_names
 
             self.get_logger().info(
@@ -478,6 +492,7 @@ class InteractivePyrokiNode(Node):
                     msg.pose.orientation.z,
                 ]
             )
+            arm.last_target_update = time.time()
 
     def process_feedback(self, feedback):
         """Handle interactive marker feedback — identify marker by name."""
@@ -502,6 +517,7 @@ class InteractivePyrokiNode(Node):
                             feedback.pose.orientation.z,
                         ]
                     )
+                    arm.last_target_update = time.time()
                 return
 
     def _split_and_publish(self, full_q, full_velocities=None):
@@ -654,12 +670,25 @@ class InteractivePyrokiNode(Node):
             actual_q = self.current_q.copy()
             target_positions = np.stack([arm.target_pos.copy() for arm in self.arm_states])
             target_wxyzs = np.stack([arm.target_wxyz.copy() for arm in self.arm_states])
+            last_updates = [arm.last_target_update for arm in self.arm_states]
 
         target_links = [arm.target_link for arm in self.arm_states]
         prev_cfg = self.smoothed_q.copy() if self.smoothed_q is not None else actual_q
 
+        # Hip stays free as shared redundancy; each arm is only free while its own target is
+        # actively moving, so the self-collision cost can't drift an untouched arm (see
+        # WHOLE_BODY_ACTIVE_TIMEOUT_S).
+        joint_mask = np.array(
+            [1.0 if jname.startswith("hip") else 0.0 for jname in self.joint_names],
+            dtype=np.float32,
+        )
+        for arm, last_update in zip(self.arm_states, last_updates):
+            if current_time - last_update < WHOLE_BODY_ACTIVE_TIMEOUT_S:
+                for i in arm.joint_indices:
+                    joint_mask[i] = 1.0
+
         solution, errors = self.solver.solve_multi(
-            target_links, target_positions, target_wxyzs, prev_cfg
+            target_links, target_positions, target_wxyzs, prev_cfg, joint_mask=joint_mask
         )
 
         err_str = ", ".join(

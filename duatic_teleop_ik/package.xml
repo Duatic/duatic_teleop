@@ -21,6 +21,15 @@
   <depend>duatic_kinematics</depend>
 
   <exec_depend>python3-numpy</exec_depend>
+  <!-- dxtr_mock_pyroki_demo.launch.py: standalone local test rig, no hardware -->
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>duatic_control</exec_depend>
+  <exec_depend>duatic_dxtr_bringup</exec_depend>
+  <exec_depend>duatic_dxtr_example_description</exec_depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

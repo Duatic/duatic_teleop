@@ -1,0 +1,324 @@
+# Copy of duatic_dxtr_example's controllers.yaml, adapted for standalone interactive_pyroki_node
+# testing without the elephant teleop node (which normally activates the arm JTCs itself):
+#   - joint_trajectory_controller_arm_{left,right} start active (elsewhere, elephant_s570_node
+#     activates these on deadman press; here nothing else will).
+#   - joint_state_broadcaster publishes directly to /joint_states instead of /joint_states_robot,
+#     since this standalone setup has no aggregator node to merge it back.
+#   - mecanum_drive_controller dropped: the base isn't driven in this test, and its plugin isn't
+#     installed in every dev image (DynaArm-only ones don't ship it).
+#   - joint_trajectory_controller_hip starts active (upstream default: inactive), so
+#     decoupled_with_hip/whole_body solve modes can actually move the hip instead of computing
+#     motion nothing applies.
+/**:
+  controller_manager:
+    ros__parameters:
+
+      ### DXTR: Controllers ###
+      duadrive_status_broadcaster:
+        type: duatic_controllers/StatusBroadcaster
+        state: active
+      joint_state_broadcaster:
+        type: joint_state_broadcaster/JointStateBroadcaster
+        state: active
+      freeze_controller:
+        type: duatic_controllers/FreezeController
+        state: inactive
+      brake_release_controller:
+        type: duatic_controllers/BrakeReleaseController
+        state: inactive
+
+      ### Torso: Controllers ###
+      freedrive_controller:
+        type: duatic_controllers/FreeDriveController
+        state: inactive
+      gravity_compensation_controller:
+        type: duatic_controllers/GravityCompensationController
+        state: active
+
+      ### Hip: Controllers ###
+      joint_trajectory_controller_hip:
+        type: joint_trajectory_controller/JointTrajectoryController
+        state: active
+      freeze_controller_hip:
+        type: duatic_controllers/FreezeController
+        state: inactive
+
+      ### Arm Left: Controllers ###
+      joint_trajectory_controller_arm_left:
+        type: joint_trajectory_controller/JointTrajectoryController
+        state: active
+      virtual_fts_arm_left:
+        type: duatic_controllers/ForceTorqueBroadcaster
+        state: active
+      freeze_controller_arm_left:
+        type: duatic_controllers/FreezeController
+        state: inactive
+
+      ### Arm Right: Controllers ###
+      joint_trajectory_controller_arm_right:
+        type: joint_trajectory_controller/JointTrajectoryController
+        state: active
+      virtual_fts_arm_right:
+        type: duatic_controllers/ForceTorqueBroadcaster
+        state: active
+      freeze_controller_arm_right:
+        type: duatic_controllers/FreezeController
+        state: inactive
+
+  ### DXTR: Controller Parameters ###
+  duadrive_status_broadcaster:
+    ros__parameters:
+      joints:
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+        - hip_yaw
+        - hip_pitch
+        - wheel_front_left
+        - wheel_front_right
+        - wheel_back_right
+        - wheel_back_left
+
+  joint_state_broadcaster:
+    ros__parameters:
+      use_urdf_to_filter: false
+      joints:
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+        - hip_yaw
+        - hip_pitch
+        - wheel_front_left
+        - wheel_front_right
+        - wheel_back_right
+        - wheel_back_left
+
+  freeze_controller:
+    ros__parameters:
+      names:
+        - DXTRSystem
+
+  brake_release_controller:
+    ros__parameters:
+      joints:
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+        - hip_yaw
+        - hip_pitch
+      position_kick: 0.01
+      mode: manual
+
+  ### Torso: Controller Parameters ###
+  freedrive_controller:
+    ros__parameters:
+      joints:
+        - hip_yaw
+        - hip_pitch
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+
+  gravity_compensation_controller:
+    ros__parameters:
+      joints:
+        - hip_yaw
+        - hip_pitch
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+
+  ### Hip: Controller Parameters ###
+  freeze_controller_hip:
+    ros__parameters:
+      names:
+        - hip_yaw
+        - hip_pitch
+
+  joint_trajectory_controller_hip:
+    ros__parameters:
+      joints:
+        - hip_yaw
+        - hip_pitch
+      command_interfaces:
+        - position
+        - velocity
+      state_interfaces:
+        - position
+        - velocity
+      allow_partial_joints_goal: false
+      constraints:
+        stopped_velocity_tolerance: 0.5
+        goal_time: 0.1
+        # Tolerances for each joint
+        hip_yaw: { trajectory: 0.5, goal: 0.1 }
+        hip_pitch: { trajectory: 0.5, goal: 0.1 }
+
+  ### Arm Left: Controller Parameters ###
+  freeze_controller_arm_left:
+    ros__parameters:
+      names:
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+
+  joint_trajectory_controller_arm_left:
+    ros__parameters:
+      joints:
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+      command_interfaces:
+        - position
+        - velocity
+      state_interfaces:
+        - position
+        - velocity
+      # See https://control.ros.org/jazzy/doc/ros2_controllers/joint_trajectory_controller/doc/parameters.html for a full list of all parameters
+      allow_partial_joints_goal: false # trajectory needs to contains goals from all joints handled by the controller
+      allow_nonzero_velocity_at_trajectory_end: true
+      constraints:
+        stopped_velocity_tolerance: 0.5
+        goal_time: 0.05
+        # Tolerances for each joint
+        shoulder_rotation: { trajectory: 0.5, goal: 0.05 }
+        shoulder_flexion: { trajectory: 0.5, goal: 0.05 }
+        elbow_flexion: { trajectory: 0.5, goal: 0.05 }
+        forearm_rotation: { trajectory: 0.5, goal: 0.05 }
+        wrist_flexion: { trajectory: 0.5, goal: 0.05 }
+        wrist_rotation: { trajectory: 0.5, goal: 0.05 }
+
+  virtual_fts_arm_left:
+    ros__parameters:
+      joints:
+        - hip_yaw
+        - hip_pitch
+        - arm_left/shoulder_lift
+        - arm_left/shoulder_rotation
+        - arm_left/shoulder_flexion
+        - arm_left/elbow_flexion
+        - arm_left/forearm_rotation
+        - arm_left/wrist_flexion
+        - arm_left/wrist_rotation
+      endeffector_frame: arm_left/flange
+      use_svd_solver: true
+
+  ### Arm Right: Controller Parameters ###
+  freeze_controller_arm_right:
+    ros__parameters:
+      names:
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+
+  joint_trajectory_controller_arm_right:
+    ros__parameters:
+      joints:
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+      command_interfaces:
+        - position
+        - velocity
+      state_interfaces:
+        - position
+        - velocity
+      # See https://control.ros.org/jazzy/doc/ros2_controllers/joint_trajectory_controller/doc/parameters.html for a full list of all parameters
+      allow_partial_joints_goal: false # trajectory needs to contains goals from all joints handled by the controller
+      allow_nonzero_velocity_at_trajectory_end: true
+      constraints:
+        stopped_velocity_tolerance: 0.5
+        goal_time: 0.05
+        # Tolerances for each joint
+        shoulder_rotation: { trajectory: 0.5, goal: 0.05 }
+        shoulder_flexion: { trajectory: 0.5, goal: 0.05 }
+        elbow_flexion: { trajectory: 0.5, goal: 0.05 }
+        forearm_rotation: { trajectory: 0.5, goal: 0.05 }
+        wrist_flexion: { trajectory: 0.5, goal: 0.05 }
+        wrist_rotation: { trajectory: 0.5, goal: 0.05 }
+
+  virtual_fts_arm_right:
+    ros__parameters:
+      joints:
+        - hip_yaw
+        - hip_pitch
+        - arm_right/shoulder_lift
+        - arm_right/shoulder_rotation
+        - arm_right/shoulder_flexion
+        - arm_right/elbow_flexion
+        - arm_right/forearm_rotation
+        - arm_right/wrist_flexion
+        - arm_right/wrist_rotation
+      endeffector_frame: arm_right/flange
+      use_svd_solver: true

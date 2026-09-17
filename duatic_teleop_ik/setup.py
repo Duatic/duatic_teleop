@@ -21,6 +21,8 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import glob
+
 from setuptools import find_packages, setup
 
 package_name = "duatic_teleop_ik"
@@ -32,6 +34,8 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        ("share/" + package_name + "/launch", glob.glob("launch/*.launch.py")),
+        ("share/" + package_name + "/config", glob.glob("config/*.yaml")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
