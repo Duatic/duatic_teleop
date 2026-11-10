@@ -34,7 +34,7 @@ All dependencies with their corresponding version are listed in the [repos.list]
 | [duatic_message_logger](https://github.com/Duatic/duatic_message_logger) | Logging library which allows logging with and without ROS | BSD-3-Clause |
 | [rsl_drive_sdk](https://github.com/Duatic/rsl_drive_sdk) | Basic drive sdk for the DynaDrives | BSD-3-Clause |
 | [soem_interface](https://github.com/Duatic/soem_interface) | EtherCAT wrapper library around SOEM | GPL v3 |
-| [soem_vendor](https://github.com/Duatic/soem_vendor) | SOEM as a plain C library, in `/usr` | BSD-3-Clause |
+| [soem_vendor](https://github.com/Duatic/soem_vendor) | ROS 2 packaging for SOEM | BSD-3-Clause |
 
 # Usage
 
