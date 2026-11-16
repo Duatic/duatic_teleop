@@ -69,7 +69,6 @@ class PlatformDriveController(BaseController):
         self.measured_linear_y = 0.0
         self.measured_angular_z = 0.0
         self.last_odom_time = None
-        self.odom_topic = "odometry/filtered"
         self.odom_subscription = None
 
         # Time tracking for acceleration calculations
@@ -77,10 +76,6 @@ class PlatformDriveController(BaseController):
 
         # Controller state
         self.is_initialized = False
-
-        self.odom_subscription = self.node.create_subscription(
-            Odometry, self.odom_topic, self._odometry_callback, 1
-        )
 
         self.node.get_logger().info("Platform drive controller initialized")
 
@@ -107,6 +102,25 @@ class PlatformDriveController(BaseController):
     def reset(self):
         """Reset commanded positions to current joint states for all topics."""
         self._send_zero_command()
+
+    def _subscribe_to_odometry(self):
+        """Subscribe once to the base drive controller's own odometry output.
+
+        Uses the ``odom_topic`` parameter if set, otherwise ``<controller>/odometry`` of the
+        first base drive controller found.
+        """
+        if self.odom_subscription is not None:
+            return
+        topic = self.odom_topic_override
+        if not topic:
+            found_base = self.duatic_controller_helper.get_all_controllers(self.base_needed_llcs)
+            if not found_base:
+                return
+            topic = f"{found_base[0]}/odometry"
+        self.odom_subscription = self.node.create_subscription(
+            Odometry, topic, self._odometry_callback, 1
+        )
+        self.node.get_logger().info(f"Platform drive uses odometry from '{topic}'")
 
     def _odometry_callback(self, msg):
         """Store the platform's measured body velocity."""
@@ -204,6 +218,7 @@ class PlatformDriveController(BaseController):
         target_linear_y = left_stick_x * self.max_vel
         target_angular_z = right_stick_x * self.max_vel
 
+        self._subscribe_to_odometry()
         self._anchor_ramp_to_odometry(current_time)
 
         self.cmd_linear_x = self._apply_acceleration_limit(target_linear_x, self.cmd_linear_x, dt)
