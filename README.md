@@ -10,6 +10,7 @@ This repository contains teleoperation interfaces for [Duatic](https://duatic.co
 * [duatic_teleop_arm](./duatic_teleop_arm) — leader-arm driver for the Elephant Robotics myController S570, publishing Cartesian pose targets via forward kinematics.
 * [duatic_teleop_gamepad](./duatic_teleop_gamepad) — gamepad-based teleoperation, mapping axes and buttons to robot control commands.
 * [duatic_teleop_ik](./duatic_teleop_ik) — JIT-compiled inverse-kinematics solver (PyRoki + JAX) that turns teleop Cartesian targets into joint trajectories.
+* [duatic_teleop](./duatic_teleop): metapackage that installs every package in this repository.
 
 # License
 
